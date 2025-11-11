@@ -1,0 +1,5 @@
+{
+  "name": "Pilates Class Manager",
+  "description": "A web application to manage pilates classes and clients, including scheduling, client management, booking, and attendance tracking.",
+  "requestFramePermissions": []
+}
