@@ -40,20 +40,13 @@ const App: React.FC = () => {
     const [currentWeek, setCurrentWeek] = useState(new Date());
 
     useEffect(() => {
-        const checkApiKey = async () => {
-            if (window.aistudio) {
-                const hasKey = await window.aistudio.hasSelectedApiKey();
-                if (hasKey) {
-                    setApiKeyReady(true);
-                } else {
-                    setLoading(false); // Stop loading if no key, wait for user action
-                }
-            } else {
-                setError("El entorno de aistudio no está disponible.");
-                setLoading(false);
-            }
-        };
-        checkApiKey();
+        // Verificar si la clave de API está configurada en el entorno local
+        if (process.env.API_KEY) {
+            setApiKeyReady(true);
+        } else {
+            setError("La clave de API no está configurada. Por favor, establece GEMINI_API_KEY en el archivo .env.local.");
+            setLoading(false);
+        }
     }, []);
 
     useEffect(() => {
@@ -69,16 +62,15 @@ const App: React.FC = () => {
                 setPayments(payments);
             } catch (err: any) {
                 const errorMessage = (err.message || '').toLowerCase();
-                // Check for common API key / permission errors from Google Sheets API
+                // Verificar errores comunes de la API de Google Sheets
                 if (
                     errorMessage.includes('api key not valid') ||
                     errorMessage.includes('does not have permission') ||
                     errorMessage.includes('api has not been used')
                 ) {
-                    setApiKeyReady(false); // Reset to show the selection screen again
-                    setError('La clave de API no es válida, no tiene los permisos necesarios o la API de Google Sheets no está habilitada en su proyecto. Por favor, selecciona una clave diferente y asegúrate de que esté configurada correctamente.');
+                    setError('La clave de API no es válida, no tiene los permisos necesarios o la API de Google Sheets no está habilitada en tu proyecto. Por favor, verifica GEMINI_API_KEY en .env.local y asegúrate de que esté configurada correctamente en Google Cloud Console.');
                 } else {
-                     setError(err.message || 'Ocurrió un error desconocido.');
+                    setError(err.message || 'Ocurrió un error desconocido.');
                 }
                 console.error(err);
             } finally {
@@ -89,12 +81,6 @@ const App: React.FC = () => {
         fetchData();
     }, [apiKeyReady]);
 
-
-    const handleSelectKey = async () => {
-        await window.aistudio.openSelectKey();
-        // After the dialog closes, assume a key was selected and try to fetch data.
-        setApiKeyReady(true);
-    };
 
     const handleWeekChange = (direction: 'next' | 'prev') => {
         setCurrentWeek(prev => {
@@ -396,31 +382,6 @@ const App: React.FC = () => {
         }
     }
 
-    if (!apiKeyReady && !loading) {
-         return (
-            <div className="flex justify-center items-center min-h-screen bg-slate-50 p-4">
-                <div className="bg-white p-8 rounded-xl shadow-2xl text-center max-w-md w-full">
-                    <h2 className="text-2xl font-bold text-teal-700 mb-4">Conectar con Google Sheets</h2>
-                    <p className="text-slate-600 mb-6">
-                        Esta aplicación necesita acceso a Google Sheets para cargar los datos. 
-                        Por favor, selecciona una clave de API que tenga permisos para leer la planilla.
-                    </p>
-                    {error && (
-                        <p className="bg-red-100 p-3 rounded-lg text-sm text-red-800 mb-4 text-left">
-                            <strong>Error:</strong> {error}
-                        </p>
-                    )}
-                    <button
-                        onClick={handleSelectKey}
-                        className="w-full px-6 py-3 bg-teal-600 text-white font-semibold rounded-lg hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 transition-colors duration-200"
-                    >
-                        Seleccionar Clave de API
-                    </button>
-                </div>
-            </div>
-        );
-    }
-
     if (loading) {
         return (
             <div className="flex justify-center items-center min-h-screen bg-slate-50">
@@ -437,16 +398,10 @@ const App: React.FC = () => {
             <div className="flex justify-center items-center min-h-screen bg-red-50 p-4">
                 <div className="bg-white p-8 rounded-xl shadow-2xl text-center max-w-md w-full">
                     <h2 className="text-2xl font-bold text-red-700 mb-4">Error al Cargar Datos</h2>
-                    <p className="text-slate-600 mb-6">No se pudo conectar con la planilla de Google. Por favor, verifica tu conexión o la configuración de la planilla.</p>
+                    <p className="text-slate-600 mb-6">No se pudo conectar con la planilla de Google. Verifica tu configuración.</p>
                     <pre className="bg-slate-100 p-4 rounded-lg text-left text-sm text-red-800 overflow-x-auto">
                         <code>{error}</code>
                     </pre>
-                     <button
-                        onClick={() => setApiKeyReady(false)} // Go back to key selection
-                        className="mt-6 w-full px-6 py-3 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors duration-200"
-                    >
-                        Intentar con otra Clave
-                    </button>
                 </div>
             </div>
         );
