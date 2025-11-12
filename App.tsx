@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Student, Schedule, Class, Booking, PaymentRecord, PlanCosts } from './types';
 import { initialPlanCosts } from './dev-data';
 import { MAX_CAPACITY } from './constants';
-import { loadDataFromSheet } from './services/googleSheetsService';
+import { loadDataFromSheet, initGapi, initGIS, signIn, isSignedIn } from './services/googleSheetsService';
 
 import Header from './components/Header';
 import ScheduleView from './components/ScheduleView';
@@ -25,7 +25,6 @@ const App: React.FC = () => {
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [apiKeyReady, setApiKeyReady] = useState(false);
     
     const [isStudentFormOpen, setIsStudentFormOpen] = useState(false);
     const [isClassDetailOpen, setIsClassDetailOpen] = useState(false);
@@ -40,47 +39,80 @@ const App: React.FC = () => {
     const [currentWeek, setCurrentWeek] = useState(new Date());
 
     useEffect(() => {
-        // Verificar si la clave de API está configurada en el entorno local
-        if (process.env.API_KEY) {
-            setApiKeyReady(true);
-        } else {
-            setError("La clave de API no está configurada. Por favor, establece GEMINI_API_KEY en el archivo .env.local.");
-            setLoading(false);
-        }
-    }, []);
-
-    useEffect(() => {
-        if (!apiKeyReady) return;
-
-        const fetchData = async () => {
+        const loadGoogleAPI = async () => {
             setLoading(true);
             setError(null);
+            
             try {
-                const { students, schedule, payments } = await loadDataFromSheet();
-                setStudents(students);
-                setSchedule(schedule);
-                setPayments(payments);
-            } catch (err: any) {
-                const errorMessage = (err.message || '').toLowerCase();
-                // Verificar errores comunes de la API de Google Sheets
-                if (
-                    errorMessage.includes('api key not valid') ||
-                    errorMessage.includes('does not have permission') ||
-                    errorMessage.includes('api has not been used')
-                ) {
-                    setError('La clave de API no es válida, no tiene los permisos necesarios o la API de Google Sheets no está habilitada en tu proyecto. Por favor, verifica GEMINI_API_KEY en .env.local y asegúrate de que esté configurada correctamente en Google Cloud Console.');
-                } else {
-                    setError(err.message || 'Ocurrió un error desconocido.');
+                // Verificar que CLIENT_ID esté configurado
+                if (!import.meta.env.VITE_GOOGLE_CLIENT_ID) {
+                    throw new Error('VITE_GOOGLE_CLIENT_ID no está configurado en .env.local');
                 }
-                console.error(err);
-            } finally {
+                
+                // Cargar el script de gapi
+                const gapiScript = document.createElement('script');
+                gapiScript.src = 'https://apis.google.com/js/api.js';
+                gapiScript.async = true;
+                gapiScript.defer = true;
+                
+                await new Promise<void>((resolve, reject) => {
+                    gapiScript.onload = () => resolve();
+                    gapiScript.onerror = () => reject(new Error('No se pudo cargar el script de Google API'));
+                    document.head.appendChild(gapiScript);
+                });
+                
+                // Cargar el script de Google Identity Services
+                const gisScript = document.createElement('script');
+                gisScript.src = 'https://accounts.google.com/gsi/client';
+                gisScript.async = true;
+                gisScript.defer = true;
+                
+                await new Promise<void>((resolve, reject) => {
+                    gisScript.onload = () => resolve();
+                    gisScript.onerror = () => reject(new Error('No se pudo cargar Google Identity Services'));
+                    document.head.appendChild(gisScript);
+                });
+                
+                // Inicializar gapi (solo client, no auth)
+                await initGapi();
+                
+                // Inicializar Google Identity Services
+                await initGIS();
+                
+                // Verificar si ya está autenticado
+                if (!isSignedIn()) {
+                    console.log('Usuario no autenticado, iniciando flujo de login...');
+                    await signIn();
+                }
+                
+                // Cargar datos
+                await fetchData();
+                
+            } catch (err: any) {
+                console.error('Error completo:', err);
+                setError(err.message || 'Error desconocido al inicializar la aplicación');
                 setLoading(false);
             }
         };
+        
+        loadGoogleAPI();
+    }, []);
 
-        fetchData();
-    }, [apiKeyReady]);
-
+    const fetchData = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const { students, schedule, payments } = await loadDataFromSheet();
+            setStudents(students);
+            setSchedule(schedule);
+            setPayments(payments);
+        } catch (err: any) {
+            setError(err.message || 'Ocurrió un error desconocido.');
+            console.error(err);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const handleWeekChange = (direction: 'next' | 'prev') => {
         setCurrentWeek(prev => {
