@@ -1,7 +1,7 @@
 import { PlanCosts } from './types';
 
 export const initialPlanCosts: PlanCosts = {
-    1: 50,
-    2: 80,
-    3: 100,
+  1: 25000,
+  2: 37000,
+  3: 50000,
 };
