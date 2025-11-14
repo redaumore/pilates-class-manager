@@ -361,7 +361,7 @@ export const updateMonthlySheet = async (
     if (!hasData) {
       // Initial load: populate with assignments from 2025 sheet
       data.push(['FECHA', 'CLASE', 'ID', 'ALUMNA', 'ESTADO', 'TIMESTAMP']); // Header
-      const now = new Date().toISOString();
+      const now = new Date().toLocaleString('sv-SE', { timeZone: 'Etc/GMT+3' });
       for (const dayName in schedule) {
         const classes = schedule[dayName] || [];
         for (const classData of classes) {
@@ -389,7 +389,7 @@ export const updateMonthlySheet = async (
     const year = parseInt(monthYear.split('-')[0]);
     const month = parseInt(monthYear.split('-')[1]) - 1; // 0-based
     const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const now = new Date().toISOString();
+    const now = new Date().toLocaleString('sv-SE', { timeZone: 'Etc/GMT+3' });
 
     for (let day = 1; day <= daysInMonth; day++) {
       const date = new Date(year, month, day);
