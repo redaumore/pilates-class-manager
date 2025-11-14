@@ -348,7 +348,7 @@ export const updateMonthlySheet = async (
       });
     }
 
-    // Check if the sheet has data
+    // Check if the sheet has data (more than just headers)
     const checkRange = `${monthYear}!A:A`;
     const checkResponse = await gapi.client.sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
@@ -357,39 +357,39 @@ export const updateMonthlySheet = async (
     const hasData =
       checkResponse.result.values && checkResponse.result.values.length > 1;
 
+    // If the sheet already has records, do not update it
+    if (hasData) {
+      console.log(`Hoja ${monthYear} ya tiene registros, no se actualiza`);
+      return;
+    }
+
     const data: string[][] = [];
-    if (!hasData) {
-      // Initial load: populate with assignments from 2025 sheet
-      data.push(['FECHA', 'CLASE', 'ID', 'ALUMNA', 'ESTADO', 'TIMESTAMP']); // Header
-      const now = new Date().toLocaleString('sv-SE', { timeZone: 'Etc/GMT+3' });
-      for (const dayName in schedule) {
-        const classes = schedule[dayName] || [];
-        for (const classData of classes) {
-          for (const booking of classData.bookings) {
-            const classId = `${DAY_MAP_REVERSE[dayName]}${classData.time}`;
-            const student = students.find((s) => s.id === booking.studentId);
-            if (student) {
-              data.push([
-                formatDate(booking.startDate),
-                classId,
-                booking.studentId,
-                `${student.nombre} ${student.apellido}`,
-                '1',
-                now,
-              ]);
-            }
+    // Initial load: populate with assignments from 2025 sheet
+    data.push(['FECHA', 'CLASE', 'ID', 'ALUMNA', 'ESTADO', 'TIMESTAMP']); // Header
+    const now = new Date().toLocaleString('sv-SE', { timeZone: 'Etc/GMT+3' });
+    for (const dayName in schedule) {
+      const classes = schedule[dayName] || [];
+      for (const classData of classes) {
+        for (const booking of classData.bookings) {
+          const classId = `${DAY_MAP_REVERSE[dayName]}${classData.time}`;
+          const student = students.find((s) => s.id === booking.studentId);
+          if (student) {
+            data.push([
+              formatDate(booking.startDate),
+              classId,
+              booking.studentId,
+              `${student.nombre} ${student.apellido}`,
+              '1',
+              now,
+            ]);
           }
         }
       }
-    } else {
-      // Update: use existing header
-      data.push(['FECHA', 'CLASE', 'ID', 'ALUMNA', 'ESTADO', 'TIMESTAMP']);
     }
 
     const year = parseInt(monthYear.split('-')[0]);
     const month = parseInt(monthYear.split('-')[1]) - 1; // 0-based
     const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const now = new Date().toLocaleString('sv-SE', { timeZone: 'Etc/GMT+3' });
 
     for (let day = 1; day <= daysInMonth; day++) {
       const date = new Date(year, month, day);
@@ -482,7 +482,7 @@ export const updateMonthlySheet = async (
       resource: { values: data },
     });
 
-    console.log(`Hoja ${monthYear} actualizada correctamente`);
+    console.log(`Hoja ${monthYear} inicializada correctamente`);
   } catch (err: any) {
     console.error('Error al actualizar la hoja mensual:', err);
     throw new Error(
