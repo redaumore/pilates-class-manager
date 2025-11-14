@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Student, Schedule, Class, Booking, PaymentRecord, PlanCosts } from './types';
 import { initialPlanCosts } from './dev-data';
 import { MAX_CAPACITY } from './constants';
-import { loadDataFromSheet, initGapi, initGIS, signIn, isSignedIn } from './services/googleSheetsService';
+import { loadDataFromSheet, initGapi, initGIS, signIn, isSignedIn, updateMonthlySheet } from './services/googleSheetsService';
 
 import Header from './components/Header';
 import ScheduleView from './components/ScheduleView';
@@ -106,6 +106,11 @@ const App: React.FC = () => {
             setStudents(students);
             setSchedule(schedule);
             setPayments(payments);
+
+            // Update the monthly sheet
+            const currentDate = new Date();
+            const monthYear = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+            await updateMonthlySheet(schedule, students, monthYear);
         } catch (err: any) {
             setError(err.message || 'Ocurrió un error desconocido.');
             console.error(err);
