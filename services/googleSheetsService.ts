@@ -274,6 +274,66 @@ export const loadDataFromSheet = async (): Promise<{
       }
     }
 
+    // Load absences from monthly sheet
+    const currentDate = new Date();
+    const monthYear = `${currentDate.getFullYear()}-${String(
+      currentDate.getMonth() + 1
+    ).padStart(2, '0')}`;
+
+    try {
+      const monthlyResponse = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `${monthYear}!A:G`,
+      });
+
+      const monthlyRows = monthlyResponse.result.values;
+      if (monthlyRows && monthlyRows.length > 1) {
+        const mHeader = monthlyRows[0];
+        const mHeaderMap = mHeader.reduce((acc: any, col: string, i: number) => {
+          acc[col.trim()] = i;
+          return acc;
+        }, {} as Record<string, number>);
+
+        for (let i = 1; i < monthlyRows.length; i++) {
+          const row = monthlyRows[i];
+          const getMVal = (colName: string) =>
+            row[mHeaderMap[colName]]?.trim() || '';
+
+          const fecha = getMVal('FECHA');
+          const claseId = getMVal('CLASE_ID');
+          const alumnaId = getMVal('ALUMNA_ID');
+          const estado = getMVal('ESTADO');
+
+          if (
+            estado === AttendanceStatus.CANCELADA_SIN_AVISO ||
+            estado === AttendanceStatus.CANCELADA_AVISO
+          ) {
+            // Find the class in schedule
+            // claseId is like 'L09'
+            if (claseId) {
+              const dayLetter = claseId.charAt(0);
+              const time = parseInt(claseId.substring(1), 10);
+              const dayName = DAY_CODE_MAP[dayLetter];
+
+              if (dayName && schedule[dayName]) {
+                const classObj = schedule[dayName].find((c) => c.time === time);
+                if (classObj) {
+                  if (!classObj.absences) classObj.absences = [];
+                  classObj.absences.push({
+                    studentId: alumnaId,
+                    date: fecha,
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.warn(`Could not load monthly sheet ${monthYear}`, error);
+      // It's okay if the sheet doesn't exist yet
+    }
+
     return { students, schedule, payments };
   } catch (err: any) {
     console.error('Error al cargar datos:', err);
@@ -757,6 +817,131 @@ export const removeStudentFromClassRecurring = async (
     console.log(`Desasignación recurrente completada para ${studentId} en ${classId}`);
   } catch (err: any) {
     console.error('Error removing student:', err);
+    throw err;
+  }
+};
+
+export const registerStudentAbsence = async (
+  studentId: string,
+  classId: string,
+  date: string,
+  withMakeup: boolean
+) => {
+  try {
+    if (!accessToken) await signIn();
+    gapi.client.setToken({ access_token: accessToken });
+
+    const monthYear = date.substring(0, 7); // YYYY-MM
+    const sheetName = monthYear;
+
+    // 1. Find the row in the monthly sheet
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${sheetName}!A:G`,
+    });
+
+    const rows = response.result.values;
+    if (!rows || rows.length === 0) {
+      throw new Error(`No se encontraron datos en la hoja ${sheetName}`);
+    }
+
+    const header = rows[0];
+    const fechaIndex = header.indexOf('FECHA');
+    const claseIdIndex = header.indexOf('CLASE_ID');
+    const alumnaIdIndex = header.indexOf('ALUMNA_ID');
+    const estadoIndex = header.indexOf('ESTADO');
+
+    if (
+      fechaIndex === -1 ||
+      claseIdIndex === -1 ||
+      alumnaIdIndex === -1 ||
+      estadoIndex === -1
+    ) {
+      throw new Error(
+        'No se encontraron las columnas necesarias en la hoja mensual'
+      );
+    }
+
+    let rowIndex = -1;
+    for (let i = 1; i < rows.length; i++) {
+      if (
+        rows[i][fechaIndex] === date &&
+        rows[i][claseIdIndex] === classId &&
+        rows[i][alumnaIdIndex] === studentId
+      ) {
+        rowIndex = i + 1; // 1-based index
+        break;
+      }
+    }
+
+    if (rowIndex === -1) {
+      console.warn(
+        `No se encontró la clase para ${studentId} en ${date} (${classId})`
+      );
+      return;
+    }
+
+    // 2. Update Status
+    const newStatus = withMakeup
+      ? AttendanceStatus.CANCELADA_AVISO
+      : AttendanceStatus.CANCELADA_SIN_AVISO;
+
+    // Helper to get column letter from index (0 -> A, 25 -> Z, 26 -> AA)
+    const getColumnLetter = (index: number): string => {
+      let letter = '';
+      while (index >= 0) {
+        letter = String.fromCharCode((index % 26) + 65) + letter;
+        index = Math.floor(index / 26) - 1;
+      }
+      return letter;
+    };
+
+    const estadoColLetter = getColumnLetter(estadoIndex);
+
+    await gapi.client.sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${sheetName}!${estadoColLetter}${rowIndex}`,
+      valueInputOption: 'RAW',
+      resource: {
+        values: [[newStatus]],
+      },
+    });
+
+    // 3. If withMakeup, update '2025' sheet
+    if (withMakeup) {
+      const mainSheetResponse = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `${SHEET_NAME}!A:Z`,
+      });
+
+      const mainRows = mainSheetResponse.result.values;
+      const mainHeader = mainRows[0];
+      const idIndex = mainHeader.indexOf('ID');
+      const recuperarIndex = mainHeader.indexOf('RECUPERAR');
+
+      if (idIndex !== -1 && recuperarIndex !== -1) {
+        for (let i = 1; i < mainRows.length; i++) {
+          if (mainRows[i][idIndex] === studentId) {
+            const currentRecupero = parseInt(
+              mainRows[i][recuperarIndex] || '0',
+              10
+            );
+            const newRecupero = currentRecupero + 1;
+            const recuperarColLetter = getColumnLetter(recuperarIndex);
+
+            await gapi.client.sheets.spreadsheets.values.update({
+              spreadsheetId: SPREADSHEET_ID,
+              range: `${SHEET_NAME}!${recuperarColLetter}${i + 1}`,
+              valueInputOption: 'RAW',
+              resource: { values: [[newRecupero]] },
+            });
+            break;
+          }
+        }
+      }
+    }
+  } catch (err: any) {
+    console.error('Error registering absence:', err);
     throw err;
   }
 };

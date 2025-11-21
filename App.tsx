@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Student, Schedule, Class, Booking, PaymentRecord, PlanCosts } from './types';
 import { initialPlanCosts } from './dev-data';
 import { MAX_CAPACITY } from './constants';
-import { loadDataFromSheet, initGapi, initGIS, signIn, isSignedIn, updateMonthlySheet, assignStudentToClassRecurring, removeStudentFromClassRecurring } from './services/googleSheetsService';
+import { loadDataFromSheet, initGapi, initGIS, signIn, isSignedIn, updateMonthlySheet, assignStudentToClassRecurring, removeStudentFromClassRecurring, registerStudentAbsence } from './services/googleSheetsService';
 
 import Header from './components/Header';
 import ScheduleView from './components/ScheduleView';
@@ -247,60 +247,67 @@ const App: React.FC = () => {
         }
     };
 
-    const handleUnbookStudentForDay = (studentId: string, classId: string, date: string, withMakeup: boolean) => {
-        setSchedule(prevSchedule => {
-            const newSchedule = JSON.parse(JSON.stringify(prevSchedule));
-            let classToUpdate: Class | null = null;
+    const handleUnbookStudentForDay = async (studentId: string, classId: string, date: string, withMakeup: boolean) => {
+        try {
+            await registerStudentAbsence(studentId, classId, date, withMakeup);
 
-            for (const day in newSchedule) {
-                const classIndex = newSchedule[day].findIndex((c: Class) => c.id === classId);
-                if (classIndex !== -1) {
-                    const oldClass = newSchedule[day][classIndex];
+            setSchedule(prevSchedule => {
+                const newSchedule = JSON.parse(JSON.stringify(prevSchedule));
+                let classToUpdate: Class | null = null;
 
-                    const hasPermanentBooking = oldClass.bookings.some(b => b.studentId === studentId);
+                for (const day in newSchedule) {
+                    const classIndex = newSchedule[day].findIndex((c: Class) => c.id === classId);
+                    if (classIndex !== -1) {
+                        const oldClass = newSchedule[day][classIndex];
 
-                    let newClass: Class;
+                        const hasPermanentBooking = oldClass.bookings.some(b => b.studentId === studentId);
 
-                    if (hasPermanentBooking) {
-                        const newAbsences = oldClass.absences ? [...oldClass.absences] : [];
-                        if (!newAbsences.some(a => a.studentId === studentId && a.date === date)) {
-                            newAbsences.push({ studentId, date });
+                        let newClass: Class;
+
+                        if (hasPermanentBooking) {
+                            const newAbsences = oldClass.absences ? [...oldClass.absences] : [];
+                            if (!newAbsences.some(a => a.studentId === studentId && a.date === date)) {
+                                newAbsences.push({ studentId, date });
+                            }
+                            newClass = {
+                                ...oldClass,
+                                absences: newAbsences,
+                            };
+                        } else {
+                            const newOneTimeBookings = (oldClass.oneTimeBookings || []).filter(
+                                b => !(b.studentId === studentId && b.date === date)
+                            );
+                            newClass = {
+                                ...oldClass,
+                                oneTimeBookings: newOneTimeBookings,
+                            };
                         }
-                        newClass = {
-                            ...oldClass,
-                            absences: newAbsences,
-                        };
-                    } else {
-                        const newOneTimeBookings = (oldClass.oneTimeBookings || []).filter(
-                            b => !(b.studentId === studentId && b.date === date)
-                        );
-                        newClass = {
-                            ...oldClass,
-                            oneTimeBookings: newOneTimeBookings,
-                        };
+
+                        newSchedule[day][classIndex] = newClass;
+                        classToUpdate = newClass;
+                        break;
                     }
-
-                    newSchedule[day][classIndex] = newClass;
-                    classToUpdate = newClass;
-                    break;
                 }
+
+                if (classToUpdate) {
+                    setSelectedClass(classToUpdate);
+                }
+
+                return newSchedule;
+            });
+
+            if (withMakeup) {
+                setStudents(prevStudents =>
+                    prevStudents.map(student =>
+                        student.id === studentId
+                            ? { ...student, clases_recuperacion: student.clases_recuperacion + 1 }
+                            : student
+                    )
+                );
             }
-
-            if (classToUpdate) {
-                setSelectedClass(classToUpdate);
-            }
-
-            return newSchedule;
-        });
-
-        if (withMakeup) {
-            setStudents(prevStudents =>
-                prevStudents.map(student =>
-                    student.id === studentId
-                        ? { ...student, clases_recuperacion: student.clases_recuperacion + 1 }
-                        : student
-                )
-            );
+        } catch (error) {
+            console.error("Error unbooking student for day:", error);
+            alert("Error al desasignar alumna de la clase. Revisa la consola para más detalles.");
         }
     };
 

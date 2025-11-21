@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
     assignStudentToClassRecurring,
     removeStudentFromClassRecurring,
+    registerStudentAbsence,
+    loadDataFromSheet,
     signIn,
 } from '../services/googleSheetsService';
 import { AssignmentType, AttendanceStatus } from '../types';
@@ -253,6 +255,138 @@ describe('googleSheetsService', () => {
                         [futureDateISO, 'M10', '123'], // Other class kept
                     ],
                 },
+            });
+        });
+    });
+
+
+    describe('registerStudentAbsence', () => {
+        it('should mark student as CANCELADA_SIN_AVISO if withMakeup is false', async () => {
+            await signIn();
+
+            // Mock monthly sheet data
+            mockGapi.client.sheets.spreadsheets.values.get.mockResolvedValueOnce({
+                result: {
+                    values: [
+                        ['FECHA', 'CLASE_ID', 'ALUMNA_ID', 'TIPO_ASIGNACION', 'ESTADO'],
+                        ['2025-11-24', 'L09', '123', 'FIJA', 'PROGRAMADA'],
+                    ],
+                },
+            });
+
+            await registerStudentAbsence('123', 'L09', '2025-11-24', false);
+
+            // Verify update call
+            // ESTADO is at index 4 -> Column E
+            // Row index is 2 (header + 1 row)
+            expect(mockGapi.client.sheets.spreadsheets.values.update).toHaveBeenCalledWith({
+                spreadsheetId: expect.any(String),
+                range: '2025-11!E2',
+                valueInputOption: 'RAW',
+                resource: { values: [['CANCELADA_SIN_AVISO']] },
+            });
+        });
+
+        it('should mark student as CANCELADA_AVISO and increment recupero if withMakeup is true', async () => {
+            await signIn();
+
+            // Mock monthly sheet data
+            mockGapi.client.sheets.spreadsheets.values.get.mockResolvedValueOnce({
+                result: {
+                    values: [
+                        ['FECHA', 'CLASE_ID', 'ALUMNA_ID', 'TIPO_ASIGNACION', 'ESTADO'],
+                        ['2025-11-24', 'L09', '123', 'FIJA', 'PROGRAMADA'],
+                    ],
+                },
+            });
+
+            // Mock main sheet data for recupero increment
+            mockGapi.client.sheets.spreadsheets.values.get.mockResolvedValueOnce({
+                result: {
+                    values: [
+                        ['ID', 'RECUPERAR'],
+                        ['123', '0'],
+                    ],
+                },
+            });
+
+            await registerStudentAbsence('123', 'L09', '2025-11-24', true);
+
+            // Verify monthly sheet update
+            expect(mockGapi.client.sheets.spreadsheets.values.update).toHaveBeenCalledWith({
+                spreadsheetId: expect.any(String),
+                range: '2025-11!E2',
+                valueInputOption: 'RAW',
+                resource: { values: [['CANCELADA_AVISO']] },
+            });
+
+            // Verify main sheet update (Recupero increment)
+            // RECUPERAR is at index 1 -> Column B
+            // Row index is 2
+            expect(mockGapi.client.sheets.spreadsheets.values.update).toHaveBeenCalledWith({
+                spreadsheetId: expect.any(String),
+                range: '2025!B2',
+                valueInputOption: 'RAW',
+                resource: { values: [[1]] },
+            });
+        });
+    });
+
+
+
+    describe('loadDataFromSheet', () => {
+        beforeEach(() => {
+            // Fix date to November 2025 for consistent testing of monthly sheet loading
+            vi.useFakeTimers();
+            vi.setSystemTime(new Date('2025-11-15T12:00:00Z'));
+        });
+
+        afterEach(() => {
+            vi.useRealTimers();
+        });
+
+        it('should load students and absences from monthly sheet', async () => {
+            await signIn();
+
+            // Mock 1: Main '2025' sheet response
+            mockGapi.client.sheets.spreadsheets.values.get.mockResolvedValueOnce({
+                result: {
+                    values: [
+                        ['ID', 'NOMBRE', 'APELLIDO', 'TELEFONO', 'NIVEL', 'INGRESO', 'PLAN', 'RECUPERAR', 'ESTADO', 'CLASE 1'],
+                        ['123', 'Maria', 'Perez', '11223344', 'B', '01/01/2025', '1', '0', 'OK', 'L16'],
+                    ],
+                },
+            });
+
+            // Mock 2: Monthly '2025-11' sheet response
+            mockGapi.client.sheets.spreadsheets.values.get.mockResolvedValueOnce({
+                result: {
+                    values: [
+                        ['FECHA', 'CLASE_ID', 'ALUMNA_ID', 'TIPO_ASIGNACION', 'ESTADO'],
+                        ['2025-11-24', 'L16', '123', 'FIJA', 'CANCELADA_SIN_AVISO'],
+                    ],
+                },
+            });
+
+            const { students, schedule } = await loadDataFromSheet();
+
+            // Verify Student loaded
+            expect(students).toHaveLength(1);
+            expect(students[0].id).toBe('123');
+
+            // Verify Schedule loaded with booking
+            const mondayClasses = schedule['Lunes'];
+            const l16 = mondayClasses.find(c => c.time === 16);
+            expect(l16).toBeDefined();
+            expect(l16?.bookings).toHaveLength(1);
+            expect(l16?.bookings[0].studentId).toBe('123');
+
+            // Verify Absence loaded
+            expect(l16?.absences).toBeDefined();
+            expect(l16?.absences).toHaveLength(1);
+            expect(l16?.absences?.[0]).toEqual({
+                studentId: '123',
+                date: '2025-11-24',
             });
         });
     });
