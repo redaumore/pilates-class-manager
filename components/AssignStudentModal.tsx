@@ -51,10 +51,14 @@ const AssignStudentModal: React.FC<AssignStudentModalProps> = ({
 
           <button
             onClick={onAssignForDay}
-            className="w-full text-left p-3 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+            disabled={student.clases_recuperacion <= 0}
+            className="w-full text-left p-3 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors disabled:bg-slate-200 disabled:cursor-not-allowed disabled:text-slate-400"
           >
             <div className="font-semibold text-slate-800">Solo por hoy</div>
-            <div className="text-sm text-slate-600">La alumna asistirá solo a la clase de hoy. Su plaza no se reserva para futuras semanas.</div>
+            <div className="text-sm text-slate-600">
+              La alumna asistirá solo a la clase de hoy. Su plaza no se reserva para futuras semanas.
+              {student.clases_recuperacion <= 0 && <span className="font-semibold text-red-600"> (Sin clases para recuperar)</span>}
+            </div>
           </button>
         </div>
 

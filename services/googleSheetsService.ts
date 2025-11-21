@@ -945,3 +945,123 @@ export const registerStudentAbsence = async (
     throw err;
   }
 };
+
+export const assignStudentToClassSingleDay = async (
+  studentId: string,
+  classId: string,
+  date: string
+) => {
+  try {
+    if (!accessToken) await signIn();
+    gapi.client.setToken({ access_token: accessToken });
+
+    // 1. Decrement RECUPERAR in '2025' sheet
+    const mainSheetResponse = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${SHEET_NAME}!A:Z`,
+    });
+
+    const mainRows = mainSheetResponse.result.values;
+    const mainHeader = mainRows[0];
+    const idIndex = mainHeader.indexOf('ID');
+    const recuperarIndex = mainHeader.indexOf('RECUPERAR');
+
+    if (idIndex === -1 || recuperarIndex === -1) {
+      throw new Error('Columnas ID o RECUPERAR no encontradas');
+    }
+
+    let studentRowIndex = -1;
+    let currentRecupero = 0;
+
+    for (let i = 1; i < mainRows.length; i++) {
+      if (mainRows[i][idIndex] === studentId) {
+        studentRowIndex = i + 1;
+        currentRecupero = parseInt(mainRows[i][recuperarIndex] || '0', 10);
+        break;
+      }
+    }
+
+    if (studentRowIndex === -1) throw new Error('Estudiante no encontrado');
+    if (currentRecupero <= 0) throw new Error('No tiene clases para recuperar');
+
+    // Helper to get column letter
+    const getColumnLetter = (index: number): string => {
+      let letter = '';
+      while (index >= 0) {
+        letter = String.fromCharCode((index % 26) + 65) + letter;
+        index = Math.floor(index / 26) - 1;
+      }
+      return letter;
+    };
+
+    const recuperarColLetter = getColumnLetter(recuperarIndex);
+    await gapi.client.sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${SHEET_NAME}!${recuperarColLetter}${studentRowIndex}`,
+      valueInputOption: 'RAW',
+      resource: { values: [[currentRecupero - 1]] },
+    });
+
+    // 2. Add to Monthly Sheet
+    const monthYear = date.substring(0, 7); // YYYY-MM
+    const sheetName = monthYear;
+
+    // Check if sheet exists, if not create it (reuse logic or assume it exists/created by other flows? 
+    // Ideally we should check. For now assuming it exists or handled like in other functions)
+    // Actually, updateMonthlySheet handles creation. Let's try to append directly or check.
+    // For simplicity and consistency with other functions, let's check/create.
+
+    const spreadsheet = await gapi.client.sheets.spreadsheets.get({
+      spreadsheetId: SPREADSHEET_ID,
+    });
+
+    let sheetExists = spreadsheet.result.sheets.some(
+      (sheet: any) => sheet.properties.title === sheetName
+    );
+
+    if (!sheetExists) {
+      await gapi.client.sheets.spreadsheets.batchUpdate({
+        spreadsheetId: SPREADSHEET_ID,
+        resource: {
+          requests: [
+            {
+              addSheet: {
+                properties: { title: sheetName },
+              },
+            },
+          ],
+        },
+      });
+      // Add header
+      await gapi.client.sheets.spreadsheets.values.update({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `${sheetName}!A1`,
+        valueInputOption: 'RAW',
+        resource: {
+          values: [['FECHA', 'CLASE_ID', 'ALUMNA_ID', 'TIPO_ASIGNACION', 'ESTADO']],
+        },
+      });
+    }
+
+    await gapi.client.sheets.spreadsheets.values.append({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${sheetName}!A:E`,
+      valueInputOption: 'RAW',
+      resource: {
+        values: [
+          [
+            date,
+            classId,
+            studentId,
+            AssignmentType.RECUPERO,
+            AttendanceStatus.PROGRAMADA,
+          ],
+        ],
+      },
+    });
+
+  } catch (err: any) {
+    console.error('Error assigning student for single day:', err);
+    throw err;
+  }
+};

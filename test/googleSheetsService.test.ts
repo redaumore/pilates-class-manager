@@ -5,6 +5,7 @@ import {
     removeStudentFromClassRecurring,
     registerStudentAbsence,
     loadDataFromSheet,
+    assignStudentToClassSingleDay,
     signIn,
 } from '../services/googleSheetsService';
 import { AssignmentType, AttendanceStatus } from '../types';
@@ -390,4 +391,69 @@ describe('googleSheetsService', () => {
             });
         });
     });
+
+    describe('assignStudentToClassSingleDay', () => {
+        it('should decrement recupero and add to monthly sheet if student has recovery classes', async () => {
+            await signIn();
+
+            // Mock main sheet (check recupero)
+            mockGapi.client.sheets.spreadsheets.values.get.mockResolvedValueOnce({
+                result: {
+                    values: [
+                        ['ID', 'RECUPERAR'],
+                        ['123', '1'], // Has 1 class to recover
+                    ],
+                },
+            });
+
+            // Mock spreadsheet get (check monthly sheet exists)
+            mockGapi.client.sheets.spreadsheets.get.mockResolvedValue({
+                result: {
+                    sheets: [{ properties: { title: '2025-11' } }],
+                },
+            });
+
+            await assignStudentToClassSingleDay('123', 'L09', '2025-11-25');
+
+            // Verify decrement in main sheet
+            // RECUPERAR is at index 1 -> Column B
+            // Row index is 2
+            expect(mockGapi.client.sheets.spreadsheets.values.update).toHaveBeenCalledWith({
+                spreadsheetId: expect.any(String),
+                range: '2025!B2',
+                valueInputOption: 'RAW',
+                resource: { values: [[0]] }, // 1 - 1 = 0
+            });
+
+            // Verify append to monthly sheet
+            expect(mockGapi.client.sheets.spreadsheets.values.append).toHaveBeenCalledWith({
+                spreadsheetId: expect.any(String),
+                range: '2025-11!A:E',
+                valueInputOption: 'RAW',
+                resource: {
+                    values: [
+                        ['2025-11-25', 'L09', '123', 'RECUPERO', 'PROGRAMADA'],
+                    ],
+                },
+            });
+        });
+
+        it('should throw error if student has no recovery classes', async () => {
+            await signIn();
+
+            // Mock main sheet (check recupero)
+            mockGapi.client.sheets.spreadsheets.values.get.mockResolvedValueOnce({
+                result: {
+                    values: [
+                        ['ID', 'RECUPERAR'],
+                        ['123', '0'], // Has 0 classes to recover
+                    ],
+                },
+            });
+
+            await expect(assignStudentToClassSingleDay('123', 'L09', '2025-11-25'))
+                .rejects.toThrow('No tiene clases para recuperar');
+        });
+    });
 });
+

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Student, Schedule, Class, Booking, PaymentRecord, PlanCosts } from './types';
 import { initialPlanCosts } from './dev-data';
 import { MAX_CAPACITY } from './constants';
-import { loadDataFromSheet, initGapi, initGIS, signIn, isSignedIn, updateMonthlySheet, assignStudentToClassRecurring, removeStudentFromClassRecurring, registerStudentAbsence } from './services/googleSheetsService';
+import { loadDataFromSheet, initGapi, initGIS, signIn, isSignedIn, updateMonthlySheet, assignStudentToClassRecurring, removeStudentFromClassRecurring, registerStudentAbsence, assignStudentToClassSingleDay } from './services/googleSheetsService';
 
 import Header from './components/Header';
 import ScheduleView from './components/ScheduleView';
@@ -347,31 +347,47 @@ const App: React.FC = () => {
         }
     };
 
-    const handleAssignStudentForDay = (studentId: string, classId: string, date: string) => {
-        let classToUpdate: Class | null = null;
-        const newSchedule = JSON.parse(JSON.stringify(schedule));
+    const handleAssignStudentForDay = async (studentId: string, classId: string, date: string) => {
+        try {
+            await assignStudentToClassSingleDay(studentId, classId, date);
 
-        for (const day in newSchedule) {
-            const classIndex = newSchedule[day].findIndex((c: Class) => c.id === classId);
-            if (classIndex > -1) {
-                const c = newSchedule[day][classIndex];
-                if (!c.oneTimeBookings) c.oneTimeBookings = [];
-                if (!c.oneTimeBookings.some(b => b.studentId === studentId && b.date === date)) {
-                    c.oneTimeBookings.push({ studentId, date });
+            let classToUpdate: Class | null = null;
+            const newSchedule = JSON.parse(JSON.stringify(schedule));
+
+            for (const day in newSchedule) {
+                const classIndex = newSchedule[day].findIndex((c: Class) => c.id === classId);
+                if (classIndex > -1) {
+                    const c = newSchedule[day][classIndex];
+                    if (!c.oneTimeBookings) c.oneTimeBookings = [];
+                    if (!c.oneTimeBookings.some(b => b.studentId === studentId && b.date === date)) {
+                        c.oneTimeBookings.push({ studentId, date });
+                    }
+                    classToUpdate = c;
+                    break;
                 }
-                classToUpdate = c;
-                break;
             }
-        }
 
-        if (classToUpdate) {
-            setSchedule(newSchedule);
-            setSelectedClass(classToUpdate);
-        }
+            if (classToUpdate) {
+                setSchedule(newSchedule);
+                setSelectedClass(classToUpdate);
+            }
 
-        setIsAssignStudentModalOpen(false);
-        setStudentToAssign(null);
-        setIsClassDetailOpen(true);
+            // Update student recovery classes count locally
+            setStudents(prevStudents =>
+                prevStudents.map(student =>
+                    student.id === studentId
+                        ? { ...student, clases_recuperacion: Math.max(0, student.clases_recuperacion - 1) }
+                        : student
+                )
+            );
+
+            setIsAssignStudentModalOpen(false);
+            setStudentToAssign(null);
+            setIsClassDetailOpen(true);
+        } catch (error) {
+            console.error("Error assigning student for day:", error);
+            alert("Error al asignar alumna por el día. Revisa si tiene clases para recuperar.");
+        }
     };
 
     const handleStudentSelectedForAssignment = (student: Student) => {
