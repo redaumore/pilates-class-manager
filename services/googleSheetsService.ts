@@ -1,5 +1,13 @@
-import { Student, Schedule, PaymentRecord, Level, Plan } from '../types';
-import { generateInitialSchedule } from '../constants';
+import {
+  Student,
+  Schedule,
+  PaymentRecord,
+  Level,
+  Plan,
+  AssignmentType,
+  AttendanceStatus,
+} from '../types';
+import { generateInitialSchedule, DAY_CODE_MAP, DAY_NAME_TO_CODE } from '../constants';
 
 // Declarar gapi y google globalmente
 declare const gapi: any;
@@ -19,18 +27,7 @@ const LEVEL_MAP: Record<string, Level> = {
   A: Level.Avanzado,
 };
 
-const DAY_MAP: Record<string, string> = {
-  L: 'Lunes',
-  M: 'Martes',
-  X: 'Miércoles',
-  J: 'Jueves',
-  V: 'Viernes',
-};
 
-const DAY_MAP_REVERSE: Record<string, string> = {};
-for (const [key, value] of Object.entries(DAY_MAP)) {
-  DAY_MAP_REVERSE[value] = key;
-}
 
 const dayIndexToName: Record<number, string> = {
   1: 'Lunes',
@@ -258,7 +255,7 @@ export const loadDataFromSheet = async (): Promise<{
         if (classCode) {
           const dayLetter = classCode.charAt(0).toUpperCase();
           const time = parseInt(classCode.substring(1), 10);
-          const dayName = DAY_MAP[dayLetter];
+          const dayName = DAY_CODE_MAP[dayLetter];
 
           if (dayName && !isNaN(time) && schedule[dayName]) {
             const classToBook = schedule[dayName].find((c) => c.time === time);
@@ -282,7 +279,7 @@ export const loadDataFromSheet = async (): Promise<{
     console.error('Error al cargar datos:', err);
     throw new Error(
       'Error al cargar datos de Google Sheets: ' +
-        (err.result?.error?.message || err.message)
+      (err.result?.error?.message || err.message)
     );
   }
 };
@@ -364,29 +361,18 @@ export const updateMonthlySheet = async (
     }
 
     const data: string[][] = [];
-    // Initial load: populate with assignments from 2025 sheet
-    data.push(['FECHA', 'CLASE', 'ID', 'ALUMNA', 'ESTADO', 'TIMESTAMP']); // Header
-    const now = new Date().toLocaleString('sv-SE', { timeZone: 'Etc/GMT+3' });
-    for (const dayName in schedule) {
-      const classes = schedule[dayName] || [];
-      for (const classData of classes) {
-        for (const booking of classData.bookings) {
-          const classId = `${DAY_MAP_REVERSE[dayName]}${classData.time}`;
-          const student = students.find((s) => s.id === booking.studentId);
-          if (student) {
-            data.push([
-              formatDate(booking.startDate),
-              classId,
-              booking.studentId,
-              `${student.nombre} ${student.apellido}`,
-              '1',
-              now,
-            ]);
-          }
-        }
-      }
-    }
+    // Header with new structure
+    data.push([
+      'FECHA',
+      'CLASE_ID',
+      'ALUMNA_ID',
+      'TIPO_ASIGNACION',
+      'ESTADO',
+      'TIMESTAMP',
+      'NOTAS',
+    ]);
 
+    const now = new Date().toLocaleString('sv-SE', { timeZone: 'Etc/GMT+3' });
     const year = parseInt(monthYear.split('-')[0]);
     const month = parseInt(monthYear.split('-')[1]) - 1; // 0-based
     const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -399,69 +385,54 @@ export const updateMonthlySheet = async (
         const dayName = dayIndexToName[dayOfWeek];
         const classes = schedule[dayName] || [];
         for (const classData of classes) {
-          const dateString = `${date.getDate().toString().padStart(2, '0')}-${(
-            date.getMonth() + 1
-          )
-            .toString()
-            .padStart(2, '0')}-${date.getFullYear()}`;
-          const dateStringISO = date.toISOString().split('T')[0]; // YYYY-MM-DD for comparisons
-          const absentStudentIds = new Set(
-            (classData.absences ?? [])
-              .filter((a) => a.date === dateString)
-              .map((a) => a.studentId)
-          );
+          const dateStringISO = date.toISOString().split('T')[0];
+
           const permanentStudentIds = new Set(
             classData.bookings
               .filter((b) => b.startDate <= dateStringISO)
               .map((b) => b.studentId)
           );
+
+          // Note: We are initializing, so we assume no one-time bookings or absences exist yet for this month in the schedule object
+          // unless they were pre-loaded. We'll handle them if they exist.
+
           const oneTimeStudentIds = new Set(
             (classData.oneTimeBookings ?? [])
-              .filter((b) => b.date === dateString)
+              .filter((b) => b.date === dateStringISO) // Assuming oneTimeBookings use YYYY-MM-DD
               .map((b) => b.studentId)
           );
 
-          const classId = `${DAY_MAP_REVERSE[dayName]}${classData.time}`;
+          const classId = `${DAY_NAME_TO_CODE[dayName]}${classData.time}`;
 
-          // For permanent students present
+          // For permanent students
           for (const studentId of permanentStudentIds) {
-            const student = students.find((s) => s.id === studentId);
-            if (student) {
-              if (!absentStudentIds.has(studentId)) {
-                data.push([
-                  dateString,
-                  classId,
-                  studentId,
-                  `${student.nombre} ${student.apellido}`,
-                  '1',
-                  now,
-                ]);
-              } else {
-                data.push([
-                  dateString,
-                  classId,
-                  studentId,
-                  `${student.nombre} ${student.apellido}`,
-                  '0',
-                  now,
-                ]);
-              }
-            }
+            // Check if absent (cancelled)
+            const isAbsent = (classData.absences ?? []).some(a => a.studentId === studentId && a.date === dateStringISO);
+
+            const estado = isAbsent ? AttendanceStatus.CANCELADA_AVISO : AttendanceStatus.PROGRAMADA;
+
+            data.push([
+              dateStringISO,
+              classId,
+              studentId,
+              AssignmentType.FIJA,
+              estado,
+              now,
+              '',
+            ]);
           }
 
-          // For one-time students (always present, so 1)
+          // For one-time students (Recoveries)
           for (const studentId of oneTimeStudentIds) {
-            const student = students.find((s) => s.id === studentId);
-            if (student) {
-              data.push([
-                dateString,
-                classId,
-                studentId,
-                `${student.nombre} ${student.apellido}`,
-                '1',
-                now,
-              ]);
-            }
+            data.push([
+              dateStringISO,
+              classId,
+              studentId,
+              AssignmentType.RECUPERO,
+              AttendanceStatus.PROGRAMADA,
+              now,
+              '',
+            ]);
           }
         }
       }
@@ -474,7 +445,7 @@ export const updateMonthlySheet = async (
       range: clearRange,
     });
 
-    const range = `${monthYear}!A1:F${data.length}`;
+    const range = `${monthYear}!A1:G${data.length}`;
     await gapi.client.sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
       range: range,
@@ -487,7 +458,305 @@ export const updateMonthlySheet = async (
     console.error('Error al actualizar la hoja mensual:', err);
     throw new Error(
       'Error al actualizar la hoja mensual: ' +
-        (err.result?.error?.message || err.message)
+      (err.result?.error?.message || err.message)
     );
+  }
+};
+
+export const assignStudentToClassRecurring = async (
+  studentId: string,
+  classId: string,
+  monthYear: string
+) => {
+  try {
+    if (!accessToken) throw new Error('Usuario no autenticado');
+    gapi.client.setToken({ access_token: accessToken });
+
+    // 1. Update '2025' Sheet (Master Sheet)
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${SHEET_NAME}!A:W`,
+    });
+
+    const rows = response.result.values;
+    if (!rows || rows.length < 2)
+      throw new Error('No se encontraron datos en la hoja de alumnos');
+
+    const header = rows[0].map((h: string) => h.trim());
+    const idIndex = header.indexOf('ID');
+    const clase1Index = header.indexOf('CLASE 1');
+    const clase2Index = header.indexOf('CLASE 2');
+    const clase3Index = header.indexOf('CLASE 3');
+    const planIndex = header.indexOf('PLAN');
+    const nombreIndex = header.indexOf('NOMBRE');
+    const apellidoIndex = header.indexOf('APELLIDO');
+
+    if (idIndex === -1 || clase1Index === -1 || planIndex === -1)
+      throw new Error('No se encontraron las columnas necesarias');
+
+    let rowIndex = -1;
+    let targetColIndex = -1;
+
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][idIndex] === studentId) {
+        rowIndex = i + 1; // 1-based index for Sheets API
+
+        const plan = parseInt(rows[i][planIndex], 10) || 1;
+        let currentClasses = 0;
+        if (rows[i][clase1Index]) currentClasses++;
+        if (rows[i][clase2Index]) currentClasses++;
+        if (rows[i][clase3Index]) currentClasses++;
+
+        if (currentClasses >= plan) {
+          throw new Error('Alumna con cupo por plan completo');
+        }
+
+        // Find empty slot
+        if (!rows[i][clase1Index]) targetColIndex = clase1Index;
+        else if (!rows[i][clase2Index]) targetColIndex = clase2Index;
+        else if (!rows[i][clase3Index]) targetColIndex = clase3Index;
+
+        break;
+      }
+    }
+
+    if (rowIndex === -1) throw new Error('Estudiante no encontrado');
+    if (targetColIndex === -1)
+      throw new Error('El estudiante ya tiene 3 clases asignadas');
+
+    // Update the cell in '2025' sheet
+    const getColumnLetter = (index: number) => {
+      let letter = '';
+      while (index >= 0) {
+        letter = String.fromCharCode((index % 26) + 65) + letter;
+        index = Math.floor(index / 26) - 1;
+      }
+      return letter;
+    };
+
+    const colLetter = getColumnLetter(targetColIndex);
+    const range = `${SHEET_NAME}!${colLetter}${rowIndex}`;
+
+    await gapi.client.sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: range,
+      valueInputOption: 'RAW',
+      resource: { values: [[classId]] },
+    });
+
+    // 2. Update Monthly Sheet (e.g., '2025-11')
+    // Calculate dates for the rest of the month for this class day
+    const dayChar = classId.charAt(0); // 'L', 'M', etc.
+    const dayName = DAY_CODE_MAP[dayChar];
+
+    let targetDayOfWeek = -1;
+    for (const [key, val] of Object.entries(dayIndexToName)) {
+      if (val === dayName) {
+        targetDayOfWeek = parseInt(key);
+        break;
+      }
+    }
+
+    if (targetDayOfWeek === -1) throw new Error('Día de clase inválido');
+
+    const currentYear = parseInt(monthYear.split('-')[0]);
+    const currentMonth = parseInt(monthYear.split('-')[1]) - 1;
+
+    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+    const newRows: string[][] = [];
+    const timestamp = new Date().toLocaleString('sv-SE', {
+      timeZone: 'Etc/GMT+3',
+    });
+
+    // Check if the monthly sheet exists before trying to append
+    const spreadsheet = await gapi.client.sheets.spreadsheets.get({
+      spreadsheetId: SPREADSHEET_ID,
+    });
+    const sheetExists = spreadsheet.result.sheets.some(
+      (sheet: any) => sheet.properties.title === monthYear
+    );
+
+    if (sheetExists) {
+      for (let d = 1; d <= daysInMonth; d++) {
+        const date = new Date(currentYear, currentMonth, d);
+        if (date.getDay() === targetDayOfWeek) {
+          // Only add if date is >= today to avoid rewriting history,
+          // or we can decide to add all.
+          // Let's add from today onwards to be safe.
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+
+          // Note: date object here is created with local time (system time),
+          // which matches 'today'.
+          if (date >= today) {
+            const dateStringISO = date.toISOString().split('T')[0];
+            newRows.push([
+              dateStringISO,
+              classId,
+              studentId,
+              AssignmentType.FIJA,
+              AttendanceStatus.PROGRAMADA,
+              timestamp,
+              '',
+            ]);
+          }
+        }
+      }
+
+      if (newRows.length > 0) {
+        await gapi.client.sheets.spreadsheets.values.append({
+          spreadsheetId: SPREADSHEET_ID,
+          range: `${monthYear}!A:G`,
+          valueInputOption: 'RAW',
+          resource: { values: newRows },
+        });
+      }
+    }
+
+    console.log(`Asignación recurrente completada para ${studentId} en ${classId}`);
+  } catch (err: any) {
+    console.error('Error assigning student:', err);
+    throw err;
+  }
+};
+
+export const removeStudentFromClassRecurring = async (
+  studentId: string,
+  classId: string,
+  monthYear: string
+) => {
+  try {
+    if (!accessToken) throw new Error('Usuario no autenticado');
+    gapi.client.setToken({ access_token: accessToken });
+
+    // 1. Update '2025' Sheet (Master Sheet)
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${SHEET_NAME}!A:W`,
+    });
+
+    const rows = response.result.values;
+    if (!rows || rows.length < 2)
+      throw new Error('No se encontraron datos en la hoja de alumnos');
+
+    const header = rows[0].map((h: string) => h.trim());
+    const idIndex = header.indexOf('ID');
+    const clase1Index = header.indexOf('CLASE 1');
+    const clase2Index = header.indexOf('CLASE 2');
+    const clase3Index = header.indexOf('CLASE 3');
+
+    if (idIndex === -1 || clase1Index === -1)
+      throw new Error('No se encontraron las columnas necesarias');
+
+    let rowIndex = -1;
+    let targetColIndex = -1;
+
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][idIndex] === studentId) {
+        rowIndex = i + 1; // 1-based index for Sheets API
+
+        // Find the slot with the classId
+        if (rows[i][clase1Index] === classId) targetColIndex = clase1Index;
+        else if (rows[i][clase2Index] === classId) targetColIndex = clase2Index;
+        else if (rows[i][clase3Index] === classId) targetColIndex = clase3Index;
+
+        break;
+      }
+    }
+
+    if (rowIndex === -1) throw new Error('Estudiante no encontrado');
+    if (targetColIndex === -1)
+      throw new Error('El estudiante no tiene asignada esta clase');
+
+    // Clear the cell in '2025' sheet
+    const getColumnLetter = (index: number) => {
+      let letter = '';
+      while (index >= 0) {
+        letter = String.fromCharCode((index % 26) + 65) + letter;
+        index = Math.floor(index / 26) - 1;
+      }
+      return letter;
+    };
+
+    const colLetter = getColumnLetter(targetColIndex);
+    const range = `${SHEET_NAME}!${colLetter}${rowIndex}`;
+
+    await gapi.client.sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: range,
+      valueInputOption: 'RAW',
+      resource: { values: [['']] }, // Clear value
+    });
+
+    // 2. Update Monthly Sheet (e.g., '2025-11')
+    // Remove future occurrences
+    const spreadsheet = await gapi.client.sheets.spreadsheets.get({
+      spreadsheetId: SPREADSHEET_ID,
+    });
+    const sheetExists = spreadsheet.result.sheets.some(
+      (sheet: any) => sheet.properties.title === monthYear
+    );
+
+    if (sheetExists) {
+      const monthlyResponse = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `${monthYear}!A:G`,
+      });
+
+      const monthlyRows = monthlyResponse.result.values;
+      if (monthlyRows && monthlyRows.length > 1) {
+        const header = monthlyRows[0];
+        const fechaIndex = header.indexOf('FECHA');
+        const claseIdIndex = header.indexOf('CLASE_ID');
+        const alumnaIdIndex = header.indexOf('ALUMNA_ID');
+
+        if (fechaIndex !== -1 && claseIdIndex !== -1 && alumnaIdIndex !== -1) {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const todayISO = today.toISOString().split('T')[0];
+
+          const newRows = monthlyRows.filter((row, index) => {
+            if (index === 0) return true; // Keep header
+
+            const rowDate = row[fechaIndex];
+            const rowClassId = row[claseIdIndex];
+            const rowStudentId = row[alumnaIdIndex];
+
+            // Check if this row should be removed
+            // Remove if: Student matches AND Class matches AND Date >= Today
+            if (
+              rowStudentId === studentId &&
+              rowClassId === classId &&
+              rowDate >= todayISO
+            ) {
+              return false; // Remove
+            }
+            return true; // Keep
+          });
+
+          // Write back if changes were made
+          if (newRows.length < monthlyRows.length) {
+            // Clear the sheet first
+            await gapi.client.sheets.spreadsheets.values.clear({
+              spreadsheetId: SPREADSHEET_ID,
+              range: `${monthYear}!A:Z`,
+            });
+
+            // Write new data
+            await gapi.client.sheets.spreadsheets.values.update({
+              spreadsheetId: SPREADSHEET_ID,
+              range: `${monthYear}!A1`,
+              valueInputOption: 'RAW',
+              resource: { values: newRows },
+            });
+          }
+        }
+      }
+    }
+
+    console.log(`Desasignación recurrente completada para ${studentId} en ${classId}`);
+  } catch (err: any) {
+    console.error('Error removing student:', err);
+    throw err;
   }
 };

@@ -45,3 +45,16 @@ export type Schedule = Record<string, Class[]>;
 export type PaymentRecord = Record<string, { [monthYear: string]: string }>;
 
 export type PlanCosts = Record<Plan, number>;
+
+export enum AssignmentType {
+  FIJA = 'FIJA',
+  RECUPERO = 'RECUPERO',
+  PRUEBA = 'PRUEBA',
+}
+
+export enum AttendanceStatus {
+  PROGRAMADA = 'PROGRAMADA',
+  ASISTIO = 'ASISTIO',
+  CANCELADA_AVISO = 'CANCELADA_AVISO',
+  CANCELADA_SIN_AVISO = 'CANCELADA_SIN_AVISO',
+}

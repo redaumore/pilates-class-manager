@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Student, Schedule, Class, Booking, PaymentRecord, PlanCosts } from './types';
 import { initialPlanCosts } from './dev-data';
 import { MAX_CAPACITY } from './constants';
-import { loadDataFromSheet, initGapi, initGIS, signIn, isSignedIn, updateMonthlySheet } from './services/googleSheetsService';
+import { loadDataFromSheet, initGapi, initGIS, signIn, isSignedIn, updateMonthlySheet, assignStudentToClassRecurring, removeStudentFromClassRecurring } from './services/googleSheetsService';
 
 import Header from './components/Header';
 import ScheduleView from './components/ScheduleView';
@@ -25,7 +25,7 @@ const App: React.FC = () => {
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    
+
     const [isStudentFormOpen, setIsStudentFormOpen] = useState(false);
     const [isClassDetailOpen, setIsClassDetailOpen] = useState(false);
     const [isAssignClassOpen, setIsAssignClassOpen] = useState(false);
@@ -42,59 +42,59 @@ const App: React.FC = () => {
         const loadGoogleAPI = async () => {
             setLoading(true);
             setError(null);
-            
+
             try {
                 // Verificar que CLIENT_ID esté configurado
                 if (!import.meta.env.VITE_GOOGLE_CLIENT_ID) {
                     throw new Error('VITE_GOOGLE_CLIENT_ID no está configurado en .env.local');
                 }
-                
+
                 // Cargar el script de gapi
                 const gapiScript = document.createElement('script');
                 gapiScript.src = 'https://apis.google.com/js/api.js';
                 gapiScript.async = true;
                 gapiScript.defer = true;
-                
+
                 await new Promise<void>((resolve, reject) => {
                     gapiScript.onload = () => resolve();
                     gapiScript.onerror = () => reject(new Error('No se pudo cargar el script de Google API'));
                     document.head.appendChild(gapiScript);
                 });
-                
+
                 // Cargar el script de Google Identity Services
                 const gisScript = document.createElement('script');
                 gisScript.src = 'https://accounts.google.com/gsi/client';
                 gisScript.async = true;
                 gisScript.defer = true;
-                
+
                 await new Promise<void>((resolve, reject) => {
                     gisScript.onload = () => resolve();
                     gisScript.onerror = () => reject(new Error('No se pudo cargar Google Identity Services'));
                     document.head.appendChild(gisScript);
                 });
-                
+
                 // Inicializar gapi (solo client, no auth)
                 await initGapi();
-                
+
                 // Inicializar Google Identity Services
                 await initGIS();
-                
+
                 // Verificar si ya está autenticado
                 if (!isSignedIn()) {
                     console.log('Usuario no autenticado, iniciando flujo de login...');
                     await signIn();
                 }
-                
+
                 // Cargar datos
                 await fetchData();
-                
+
             } catch (err: any) {
                 console.error('Error completo:', err);
                 setError(err.message || 'Error desconocido al inicializar la aplicación');
                 setLoading(false);
             }
         };
-        
+
         loadGoogleAPI();
     }, []);
 
@@ -165,21 +165,21 @@ const App: React.FC = () => {
                 return newSchedule;
             });
             setPayments(prev => {
-                const newPayments = {...prev};
+                const newPayments = { ...prev };
                 delete newPayments[studentId];
                 return newPayments;
             });
         }
     };
-    
+
     const handleClassClick = (classData: Class, date?: string) => {
         setSelectedClass(classData);
         setSelectedDate(date);
         setIsClassDetailOpen(true);
     };
-    
+
     const handleToggleCancelClass = (classId: string) => {
-         setSchedule(prevSchedule => {
+        setSchedule(prevSchedule => {
             const newSchedule = JSON.parse(JSON.stringify(prevSchedule));
             for (const day in newSchedule) {
                 newSchedule[day] = newSchedule[day].map((c: Class) => {
@@ -193,65 +193,74 @@ const App: React.FC = () => {
         });
         setSelectedClass(prev => prev && prev.id === classId ? { ...prev, isCancelled: !prev.isCancelled } : prev);
     };
-    
-    const handleUnbookStudentPermanently = (studentId: string, classId: string, date: string) => {
+
+    const handleUnbookStudentPermanently = async (studentId: string, classId: string, date: string) => {
+        try {
+            const currentDate = new Date();
+            const monthYear = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+            await removeStudentFromClassRecurring(studentId, classId, monthYear);
+
+            setSchedule(prevSchedule => {
+                const newSchedule = JSON.parse(JSON.stringify(prevSchedule));
+                let classToUpdate: Class | null = null;
+
+                for (const day in newSchedule) {
+                    const classIndex = newSchedule[day].findIndex((c: Class) => c.id === classId);
+                    if (classIndex !== -1) {
+                        const oldClass = newSchedule[day][classIndex];
+
+                        const initialPermanentBookingsCount = oldClass.bookings.length;
+                        const newPermanentBookings = oldClass.bookings.filter(b => b.studentId !== studentId);
+
+                        let newClass: Class;
+
+                        if (newPermanentBookings.length < initialPermanentBookingsCount) {
+                            newClass = {
+                                ...oldClass,
+                                bookings: newPermanentBookings,
+                            };
+                        } else {
+                            const newOneTimeBookings = (oldClass.oneTimeBookings || []).filter(
+                                b => !(b.studentId === studentId && b.date === date)
+                            );
+                            newClass = {
+                                ...oldClass,
+                                oneTimeBookings: newOneTimeBookings,
+                            };
+                        }
+
+                        newSchedule[day][classIndex] = newClass;
+                        classToUpdate = newClass;
+                        break;
+                    }
+                }
+
+                if (classToUpdate) {
+                    setSelectedClass(classToUpdate);
+                }
+
+                return newSchedule;
+            });
+        } catch (error) {
+            console.error("Error removing student permanently:", error);
+            alert("Error al desasignar alumna de la clase recurrente. Revisa la consola para más detalles.");
+        }
+    };
+
+    const handleUnbookStudentForDay = (studentId: string, classId: string, date: string, withMakeup: boolean) => {
         setSchedule(prevSchedule => {
             const newSchedule = JSON.parse(JSON.stringify(prevSchedule));
             let classToUpdate: Class | null = null;
-    
+
             for (const day in newSchedule) {
                 const classIndex = newSchedule[day].findIndex((c: Class) => c.id === classId);
                 if (classIndex !== -1) {
                     const oldClass = newSchedule[day][classIndex];
-                    
-                    const initialPermanentBookingsCount = oldClass.bookings.length;
-                    const newPermanentBookings = oldClass.bookings.filter(b => b.studentId !== studentId);
-                    
-                    let newClass: Class;
-    
-                    if (newPermanentBookings.length < initialPermanentBookingsCount) {
-                         newClass = {
-                            ...oldClass,
-                            bookings: newPermanentBookings,
-                        };
-                    } else {
-                        const newOneTimeBookings = (oldClass.oneTimeBookings || []).filter(
-                            b => !(b.studentId === studentId && b.date === date)
-                        );
-                        newClass = {
-                            ...oldClass,
-                            oneTimeBookings: newOneTimeBookings,
-                        };
-                    }
-    
-                    newSchedule[day][classIndex] = newClass;
-                    classToUpdate = newClass;
-                    break; 
-                }
-            }
-            
-            if (classToUpdate) {
-                setSelectedClass(classToUpdate);
-            }
-            
-            return newSchedule;
-        });
-    };
-    
-    const handleUnbookStudentForDay = (studentId: string, classId: string, date: string, withMakeup: boolean) => {
-       setSchedule(prevSchedule => {
-            const newSchedule = JSON.parse(JSON.stringify(prevSchedule));
-            let classToUpdate: Class | null = null;
-    
-            for (const day in newSchedule) {
-                const classIndex = newSchedule[day].findIndex((c: Class) => c.id === classId);
-                if (classIndex !== -1) {
-                    const oldClass = newSchedule[day][classIndex];
-                    
+
                     const hasPermanentBooking = oldClass.bookings.some(b => b.studentId === studentId);
-                    
+
                     let newClass: Class;
-    
+
                     if (hasPermanentBooking) {
                         const newAbsences = oldClass.absences ? [...oldClass.absences] : [];
                         if (!newAbsences.some(a => a.studentId === studentId && a.date === date)) {
@@ -270,24 +279,24 @@ const App: React.FC = () => {
                             oneTimeBookings: newOneTimeBookings,
                         };
                     }
-    
+
                     newSchedule[day][classIndex] = newClass;
                     classToUpdate = newClass;
                     break;
                 }
             }
-            
+
             if (classToUpdate) {
                 setSelectedClass(classToUpdate);
             }
-            
+
             return newSchedule;
         });
 
         if (withMakeup) {
-            setStudents(prevStudents => 
-                prevStudents.map(student => 
-                    student.id === studentId 
+            setStudents(prevStudents =>
+                prevStudents.map(student =>
+                    student.id === studentId
                         ? { ...student, clases_recuperacion: student.clases_recuperacion + 1 }
                         : student
                 )
@@ -295,31 +304,40 @@ const App: React.FC = () => {
         }
     };
 
-    const handleAssignStudentPermanently = (studentId: string, classId: string, startDate: string) => {
-        let classToUpdate: Class | null = null;
-        const newSchedule = JSON.parse(JSON.stringify(schedule));
-        
-        for (const day in newSchedule) {
-            const classIndex = newSchedule[day].findIndex((c: Class) => c.id === classId);
-            if(classIndex > -1) {
-                const foundClass = newSchedule[day][classIndex];
-                if (foundClass.bookings.length < MAX_CAPACITY) {
-                    const newBooking: Booking = { studentId, classId, startDate };
-                    foundClass.bookings.push(newBooking);
-                    classToUpdate = foundClass;
-                }
-                break;
-            }
-        }
-        
-        if (classToUpdate) {
-            setSchedule(newSchedule);
-            setSelectedClass(classToUpdate);
-        }
+    const handleAssignStudentPermanently = async (studentId: string, classId: string, startDate: string) => {
+        try {
+            const currentDate = new Date();
+            const monthYear = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+            await assignStudentToClassRecurring(studentId, classId, monthYear);
 
-        setIsAssignStudentModalOpen(false);
-        setStudentToAssign(null);
-        setIsClassDetailOpen(true);
+            let classToUpdate: Class | null = null;
+            const newSchedule = JSON.parse(JSON.stringify(schedule));
+
+            for (const day in newSchedule) {
+                const classIndex = newSchedule[day].findIndex((c: Class) => c.id === classId);
+                if (classIndex > -1) {
+                    const foundClass = newSchedule[day][classIndex];
+                    if (foundClass.bookings.length < MAX_CAPACITY) {
+                        const newBooking: Booking = { studentId, classId, startDate };
+                        foundClass.bookings.push(newBooking);
+                        classToUpdate = foundClass;
+                    }
+                    break;
+                }
+            }
+
+            if (classToUpdate) {
+                setSchedule(newSchedule);
+                setSelectedClass(classToUpdate);
+            }
+
+            setIsAssignStudentModalOpen(false);
+            setStudentToAssign(null);
+            setIsClassDetailOpen(true);
+        } catch (error) {
+            console.error("Error assigning student permanently:", error);
+            alert("Error al asignar alumna a la clase recurrente. Revisa la consola para más detalles.");
+        }
     };
 
     const handleAssignStudentForDay = (studentId: string, classId: string, date: string) => {
@@ -338,7 +356,7 @@ const App: React.FC = () => {
                 break;
             }
         }
-        
+
         if (classToUpdate) {
             setSchedule(newSchedule);
             setSelectedClass(classToUpdate);
@@ -380,16 +398,28 @@ const App: React.FC = () => {
         });
     };
 
+    const getStudentBookingsCount = (studentId: string) => {
+        let count = 0;
+        for (const day in schedule) {
+            for (const cls of schedule[day]) {
+                if (cls.bookings.some(b => b.studentId === studentId)) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    };
+
     const handleSavePlanCosts = (newCosts: PlanCosts) => {
         setPlanCosts(newCosts);
     };
 
     const renderContent = () => {
-        switch(currentView) {
+        switch (currentView) {
             case 'schedule':
-                return <ScheduleView 
-                    schedule={schedule} 
-                    students={students} 
+                return <ScheduleView
+                    schedule={schedule}
+                    students={students}
                     onClassClick={handleClassClick}
                     currentWeek={currentWeek}
                     onWeekChange={handleWeekChange}
@@ -404,7 +434,7 @@ const App: React.FC = () => {
                     onDeleteStudent={handleDeleteStudent}
                 />;
             case 'payments':
-                return <PaymentsPage 
+                return <PaymentsPage
                     students={students}
                     payments={payments}
                     planCosts={planCosts}
@@ -412,7 +442,7 @@ const App: React.FC = () => {
                     onUndoPayment={handleUndoPayment}
                 />;
             case 'settings':
-                return <SettingsPage 
+                return <SettingsPage
                     planCosts={planCosts}
                     onSave={handleSavePlanCosts}
                 />;
@@ -446,15 +476,15 @@ const App: React.FC = () => {
 
     return (
         <div className="bg-slate-50 min-h-screen font-sans">
-            <Header 
+            <Header
                 currentView={currentView}
                 onNavigate={setCurrentView}
             />
 
             <main className="container mx-auto p-4 sm:p-6 lg:p-8">
-              {renderContent()}
+                {renderContent()}
             </main>
-            
+
             <StudentFormModal
                 isOpen={isStudentFormOpen}
                 onClose={() => setIsStudentFormOpen(false)}
@@ -500,6 +530,7 @@ const App: React.FC = () => {
                 classData={selectedClass}
                 onAssignPermanently={() => handleAssignStudentPermanently(studentToAssign.id, selectedClass.id, selectedDate)}
                 onAssignForDay={() => handleAssignStudentForDay(studentToAssign.id, selectedClass.id, selectedDate)}
+                currentBookingsCount={getStudentBookingsCount(studentToAssign.id)}
             />}
         </div>
     );

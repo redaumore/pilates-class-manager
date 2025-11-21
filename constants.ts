@@ -9,11 +9,27 @@ export const WEEK_SCHEDULE_CONFIG: Record<string, number[]> = {
   Viernes: [8, 9, 10],
 };
 
+export const DAY_CODE_MAP: Record<string, string> = {
+  L: 'Lunes',
+  M: 'Martes',
+  X: 'Miércoles',
+  J: 'Jueves',
+  V: 'Viernes',
+};
+
+export const DAY_NAME_TO_CODE: Record<string, string> = {
+  Lunes: 'L',
+  Martes: 'M',
+  Miércoles: 'X',
+  Jueves: 'J',
+  Viernes: 'V',
+};
+
 export const generateInitialSchedule = (): Schedule => {
   const schedule: Schedule = {};
   for (const day in WEEK_SCHEDULE_CONFIG) {
     schedule[day] = WEEK_SCHEDULE_CONFIG[day].map(time => ({
-      id: `${day}-${time}`,
+      id: `${DAY_NAME_TO_CODE[day]}${time}`,
       day,
       time,
       bookings: [],
@@ -30,4 +46,3 @@ export const LEVEL_HIERARCHY: Record<Level, number> = {
 };
 
 export const MAX_CAPACITY = 5;
-   
