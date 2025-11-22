@@ -57,6 +57,10 @@ const AssignStudentModal: React.FC<AssignStudentModalProps> = ({
             <div className="font-semibold text-slate-800">Solo por hoy</div>
             <div className="text-sm text-slate-600">
               La alumna asistirá solo a la clase de hoy. Su plaza no se reserva para futuras semanas.
+              <br />
+              <span className={student.clases_recuperacion > 0 ? "text-blue-600 font-medium" : "text-slate-500"}>
+                Clases disponibles para recuperar: {student.clases_recuperacion}
+              </span>
               {student.clases_recuperacion <= 0 && <span className="font-semibold text-red-600"> (Sin clases para recuperar)</span>}
             </div>
           </button>

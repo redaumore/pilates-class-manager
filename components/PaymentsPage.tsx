@@ -83,14 +83,14 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({ students, payments, planCos
     <>
       <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md">
         <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
-          <h2 className="text-xl font-bold text-teal-800">Gestión de Pagos</h2>
+          <h2 className="text-xl font-bold text-blue-800">Gestión de Pagos</h2>
           
           <div className="w-full sm:w-auto flex flex-col md:flex-row items-center gap-4">
             <div className="flex items-center gap-2">
               <button onClick={() => changeMonth(-1)} className="p-2 rounded-full hover:bg-slate-100 transition-colors">
                 <ChevronLeftIcon className="w-6 h-6 text-slate-600" />
               </button>
-              <h3 className="text-lg font-semibold text-teal-700 w-48 text-center capitalize">
+              <h3 className="text-lg font-semibold text-blue-700 w-48 text-center capitalize">
                 {viewDate.toLocaleString('es-ES', { month: 'long', year: 'numeric' })}
               </h3>
               <button onClick={() => changeMonth(1)} className="p-2 rounded-full hover:bg-slate-100 transition-colors">
@@ -104,7 +104,7 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({ students, payments, planCos
                 placeholder="Buscar alumna..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full md:w-48 px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-teal-500 focus:border-teal-500"
+                className="w-full md:w-48 px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               />
                <div className="flex items-center whitespace-nowrap">
                 <input
@@ -112,7 +112,7 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({ students, payments, planCos
                   id="unpaid-filter"
                   checked={showOnlyUnpaid}
                   onChange={(e) => setShowOnlyUnpaid(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                  className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                 />
                 <label htmlFor="unpaid-filter" className="ml-2 block text-sm text-slate-700">
                   Mostrar solo pendientes
@@ -122,7 +122,7 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({ students, payments, planCos
           </div>
         </div>
 
-        <div className="bg-teal-50 border-l-4 border-teal-500 text-teal-800 p-4 rounded-r-lg mb-6" role="alert">
+        <div className="bg-blue-50 border-l-4 border-blue-500 text-blue-800 p-4 rounded-r-lg mb-6" role="alert">
             <div className="flex justify-between items-center flex-wrap gap-4">
                 <p className="font-bold text-lg">Resumen del Mes</p>
                 <div className="text-right">
@@ -174,7 +174,7 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({ students, payments, planCos
                           Deshacer
                         </button>
                       ) : (
-                        <button onClick={() => handleOpenPaymentModal(student)} className="px-3 py-1 bg-teal-600 text-white text-sm rounded-md hover:bg-teal-700 w-full sm:w-auto">
+                        <button onClick={() => handleOpenPaymentModal(student)} className="px-3 py-1 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 w-full sm:w-auto">
                           Marcar Pago
                         </button>
                       )}

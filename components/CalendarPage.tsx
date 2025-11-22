@@ -69,7 +69,7 @@ const CalendarPage: React.FC<CalendarPageProps> = ({ schedule, students, onClass
         <button onClick={() => changeMonth(-1)} className="p-2 rounded-full hover:bg-slate-100">
           <ChevronLeftIcon className="w-6 h-6 text-slate-600" />
         </button>
-        <h2 className="text-xl font-bold text-teal-800 capitalize">
+        <h2 className="text-xl font-bold text-blue-800 capitalize">
           {currentDate.toLocaleString('es-ES', { month: 'long', year: 'numeric' })}
         </h2>
         <button onClick={() => changeMonth(1)} className="p-2 rounded-full hover:bg-slate-100">
@@ -93,9 +93,9 @@ const CalendarPage: React.FC<CalendarPageProps> = ({ schedule, students, onClass
           return (
             <div
               key={day.toISOString()}
-              className={`border rounded-lg p-2 min-h-[120px] flex flex-col ${isToday ? 'border-teal-500 bg-teal-50' : 'border-slate-200 bg-white'}`}
+              className={`border rounded-lg p-2 min-h-[120px] flex flex-col ${isToday ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'}`}
             >
-              <span className={`font-semibold mb-1 ${isToday ? 'text-teal-700' : 'text-slate-600'}`}>
+              <span className={`font-semibold mb-1 ${isToday ? 'text-blue-700' : 'text-slate-600'}`}>
                 {day.getDate()}
               </span>
               <div className="space-y-1 overflow-y-auto text-xs">

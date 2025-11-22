@@ -962,7 +962,7 @@ export const assignStudentToClassSingleDay = async (
     });
 
     const mainRows = mainSheetResponse.result.values;
-    const mainHeader = mainRows[0];
+    const mainHeader = mainRows[0].map((col: string) => col.trim());
     const idIndex = mainHeader.indexOf('ID');
     const recuperarIndex = mainHeader.indexOf('RECUPERAR');
 
@@ -974,9 +974,11 @@ export const assignStudentToClassSingleDay = async (
     let currentRecupero = 0;
 
     for (let i = 1; i < mainRows.length; i++) {
-      if (mainRows[i][idIndex] === studentId) {
+      if (mainRows[i][idIndex]?.trim() === studentId) {
         studentRowIndex = i + 1;
-        currentRecupero = parseInt(mainRows[i][recuperarIndex] || '0', 10);
+        const rawRecupero = mainRows[i][recuperarIndex];
+        currentRecupero = parseInt(rawRecupero, 10);
+        if (isNaN(currentRecupero)) currentRecupero = 0;
         break;
       }
     }

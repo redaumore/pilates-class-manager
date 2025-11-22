@@ -33,7 +33,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ planCosts, onSave }) => {
 
   return (
     <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md max-w-lg mx-auto">
-      <h2 className="text-xl font-bold text-teal-800 mb-6">Configuración del Negocio</h2>
+      <h2 className="text-xl font-bold text-blue-800 mb-6">Configuración del Negocio</h2>
       
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
@@ -55,7 +55,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ planCosts, onSave }) => {
                     value={costs[plan]}
                     onChange={(e) => handleChange(plan, e.target.value)}
                     min="0"
-                    className="block w-full rounded-md border-slate-300 bg-white text-slate-900 pl-7 pr-12 focus:border-teal-500 focus:ring-teal-500 sm:text-sm"
+                    className="block w-full rounded-md border-slate-300 bg-white text-slate-900 pl-7 pr-12 focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                     placeholder="0"
                   />
                 </div>
@@ -68,7 +68,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ planCosts, onSave }) => {
           <div className="flex justify-end">
             <button
               type="submit"
-              className="w-full sm:w-auto px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 disabled:bg-slate-400 transition-colors duration-200 flex items-center justify-center"
+              className="w-full sm:w-auto px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-slate-400 transition-colors duration-200 flex items-center justify-center"
               disabled={saveStatus === 'saving'}
             >
               {saveStatus === 'idle' && 'Guardar Cambios'}

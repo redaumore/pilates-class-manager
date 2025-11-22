@@ -476,7 +476,7 @@ const App: React.FC = () => {
         return (
             <div className="flex justify-center items-center min-h-screen bg-slate-50">
                 <div className="text-center">
-                    <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-teal-600 mx-auto"></div>
+                    <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-600 mx-auto"></div>
                     <p className="mt-4 text-lg font-semibold text-slate-700">Cargando datos desde la planilla...</p>
                 </div>
             </div>

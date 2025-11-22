@@ -24,18 +24,18 @@ const StudentManagementPage: React.FC<StudentManagementPageProps> = ({ students,
   return (
     <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md">
       <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
-        <h2 className="text-xl font-bold text-teal-800">Gestión de Alumnas</h2>
+        <h2 className="text-xl font-bold text-blue-800">Gestión de Alumnas</h2>
         <div className="w-full sm:w-auto flex flex-col sm:flex-row items-center gap-4">
             <input 
               type="text"
               placeholder="Buscar alumna..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full sm:w-64 px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-teal-500 focus:border-teal-500"
+              className="w-full sm:w-64 px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
             />
             <button
               onClick={onAddStudent}
-              className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500"
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
             >
               <PlusIcon className="w-5 h-5" />
               <span>Nueva Alumna</span>
