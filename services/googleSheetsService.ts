@@ -54,8 +54,20 @@ const MONTH_MAP: Record<string, string> = {
 
 // Helper to parse date from DD/MM/YYYY to YYYY-MM-DD
 const parseDate = (dateString: string): string => {
-  if (!dateString || !dateString.includes('/')) return dateString;
-  const parts = dateString.split('/');
+  if (!dateString) return dateString;
+
+  let parts: string[] = [];
+
+  if (dateString.includes('/')) {
+    parts = dateString.split('/');
+  } else if (dateString.includes('-')) {
+    parts = dateString.split('-');
+    // If it's already YYYY-MM-DD, return as is
+    if (parts[0].length === 4) return dateString;
+  } else {
+    return dateString;
+  }
+
   if (parts.length !== 3) return dateString;
   const [day, month, year] = parts;
   return `${year.length === 2 ? '20' + year : year}-${month.padStart(
@@ -799,13 +811,13 @@ export const removeStudentFromClassRecurring = async (
             // Clear the sheet first
             await gapi.client.sheets.spreadsheets.values.clear({
               spreadsheetId: SPREADSHEET_ID,
-              range: `${monthYear}!A:Z`,
+              range: `${monthYear}!A:G`,
             });
 
-            // Write new data
+            // Write new rows
             await gapi.client.sheets.spreadsheets.values.update({
               spreadsheetId: SPREADSHEET_ID,
-              range: `${monthYear}!A1`,
+              range: `${monthYear}!A1:G${newRows.length}`,
               valueInputOption: 'RAW',
               resource: { values: newRows },
             });
@@ -814,12 +826,94 @@ export const removeStudentFromClassRecurring = async (
       }
     }
 
-    console.log(`Desasignación recurrente completada para ${studentId} en ${classId}`);
+    console.log(`Eliminación recurrente completada para ${studentId} de ${classId}`);
   } catch (err: any) {
     console.error('Error removing student:', err);
     throw err;
   }
 };
+
+export const updatePaymentStatus = async (
+  studentId: string,
+  monthYear: string,
+  paymentDate: string
+) => {
+  try {
+    if (!accessToken) throw new Error('Usuario no autenticado');
+    gapi.client.setToken({ access_token: accessToken });
+
+    // 1. Get data to find row and column
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${SHEET_NAME}!A:W`,
+    });
+
+    const rows = response.result.values;
+    if (!rows || rows.length < 2)
+      throw new Error('No se encontraron datos en la hoja de alumnos');
+
+    const header = rows[0].map((h: string) => h.trim());
+    const idIndex = header.indexOf('ID');
+
+    // Extract month from monthYear (e.g., "2025-01")
+    const monthNum = monthYear.split('-')[1]; // "01"
+
+    // Reverse MONTH_MAP to find column name
+    const monthAbbr = Object.keys(MONTH_MAP).find(key => MONTH_MAP[key] === monthNum);
+
+    if (!monthAbbr) throw new Error('Mes inválido');
+
+    const monthIndex = header.indexOf(monthAbbr);
+
+    if (idIndex === -1 || monthIndex === -1)
+      throw new Error('No se encontraron las columnas necesarias');
+
+    let rowIndex = -1;
+
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][idIndex] === studentId) {
+        rowIndex = i + 1; // 1-based index
+        break;
+      }
+    }
+
+    if (rowIndex === -1) throw new Error('Estudiante no encontrado');
+
+    // Update cell
+    const getColumnLetter = (index: number) => {
+      let letter = '';
+      while (index >= 0) {
+        letter = String.fromCharCode((index % 26) + 65) + letter;
+        index = Math.floor(index / 26) - 1;
+      }
+      return letter;
+    };
+
+    const colLetter = getColumnLetter(monthIndex);
+    const range = `${SHEET_NAME}!${colLetter}${rowIndex}`;
+
+    // Format date to DD-MM-YYYY if it's not empty
+    let valueToSave = '';
+    if (paymentDate) {
+      const [year, month, day] = paymentDate.split('-');
+      valueToSave = `${day}-${month}-${year}`;
+    }
+
+    await gapi.client.sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: range,
+      valueInputOption: 'RAW',
+      resource: { values: [[valueToSave]] },
+    });
+
+    console.log(`Pago actualizado para ${studentId} en ${monthYear}: ${valueToSave}`);
+
+  } catch (err: any) {
+    console.error('Error updating payment status:', err);
+    throw new Error('Error al actualizar el estado del pago: ' + err.message);
+  }
+};
+
 
 export const registerStudentAbsence = async (
   studentId: string,

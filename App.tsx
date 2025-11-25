@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Student, Schedule, Class, Booking, PaymentRecord, PlanCosts } from './types';
 import { initialPlanCosts } from './dev-data';
 import { MAX_CAPACITY } from './constants';
-import { loadDataFromSheet, initGapi, initGIS, signIn, isSignedIn, updateMonthlySheet, assignStudentToClassRecurring, removeStudentFromClassRecurring, registerStudentAbsence, assignStudentToClassSingleDay } from './services/googleSheetsService';
+import { loadDataFromSheet, initGapi, initGIS, signIn, isSignedIn, updateMonthlySheet, assignStudentToClassRecurring, removeStudentFromClassRecurring, registerStudentAbsence, assignStudentToClassSingleDay, updatePaymentStatus } from './services/googleSheetsService';
 
 import Header from './components/Header';
 import ScheduleView from './components/ScheduleView';
@@ -396,29 +396,41 @@ const App: React.FC = () => {
         setIsAssignStudentModalOpen(true);
     };
 
-    const handleMarkPayment = (studentId: string, monthYear: string, paymentDate: string) => {
-        setPayments(prev => {
-            const studentPayments = prev[studentId] || {};
-            return {
-                ...prev,
-                [studentId]: {
-                    ...studentPayments,
-                    [monthYear]: paymentDate
-                }
-            };
-        });
+    const handleMarkPayment = async (studentId: string, monthYear: string, paymentDate: string) => {
+        try {
+            await updatePaymentStatus(studentId, monthYear, paymentDate);
+            setPayments(prev => {
+                const studentPayments = prev[studentId] || {};
+                return {
+                    ...prev,
+                    [studentId]: {
+                        ...studentPayments,
+                        [monthYear]: paymentDate
+                    }
+                };
+            });
+        } catch (error) {
+            console.error("Error marking payment:", error);
+            alert("Error al registrar el pago. Revisa la consola.");
+        }
     };
 
-    const handleUndoPayment = (studentId: string, monthYear: string) => {
-        setPayments(prev => {
-            const studentPayments = { ...prev[studentId] };
-            if (!studentPayments) return prev;
-            delete studentPayments[monthYear];
-            return {
-                ...prev,
-                [studentId]: studentPayments
-            };
-        });
+    const handleUndoPayment = async (studentId: string, monthYear: string) => {
+        try {
+            await updatePaymentStatus(studentId, monthYear, '');
+            setPayments(prev => {
+                const studentPayments = { ...prev[studentId] };
+                if (!studentPayments) return prev;
+                delete studentPayments[monthYear];
+                return {
+                    ...prev,
+                    [studentId]: studentPayments
+                };
+            });
+        } catch (error) {
+            console.error("Error undoing payment:", error);
+            alert("Error al deshacer el pago. Revisa la consola.");
+        }
     };
 
     const getStudentBookingsCount = (studentId: string) => {
