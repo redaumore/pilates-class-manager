@@ -43,9 +43,18 @@ const StudentFormModal: React.FC<StudentFormModalProps> = ({ isOpen, onClose, on
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ 
-      ...prev, 
-      [name]: (name === 'plan' || name === 'clases_recuperacion') ? parseInt(value, 10) : value 
+    let processedValue: string | number = value;
+
+    // Convert to uppercase for nombre and apellido
+    if (name === 'nombre' || name === 'apellido') {
+      processedValue = value.toUpperCase();
+    } else if (name === 'plan' || name === 'clases_recuperacion') {
+      processedValue = parseInt(value, 10);
+    }
+
+    setFormData(prev => ({
+      ...prev,
+      [name]: processedValue
     }));
   };
 
@@ -94,14 +103,14 @@ const StudentFormModal: React.FC<StudentFormModalProps> = ({ isOpen, onClose, on
         </div>
         <div>
           <label htmlFor="clases_recuperacion" className="block text-sm font-medium text-slate-700">Clases de Recuperación</label>
-          <input 
-            type="number" 
-            name="clases_recuperacion" 
-            id="clases_recuperacion" 
-            value={formData.clases_recuperacion} 
-            onChange={handleChange} 
+          <input
+            type="number"
+            name="clases_recuperacion"
+            id="clases_recuperacion"
+            value={formData.clases_recuperacion}
+            onChange={handleChange}
             min="0"
-            className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" 
+            className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
           />
         </div>
         <div className="pt-4 flex justify-end gap-3">

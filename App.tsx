@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Student, Schedule, Class, Booking, PaymentRecord, PlanCosts } from './types';
 import { initialPlanCosts } from './dev-data';
 import { MAX_CAPACITY } from './constants';
-import { loadDataFromSheet, initGapi, initGIS, signIn, isSignedIn, updateMonthlySheet, assignStudentToClassRecurring, removeStudentFromClassRecurring, registerStudentAbsence, assignStudentToClassSingleDay, updatePaymentStatus } from './services/googleSheetsService';
+import { loadDataFromSheet, initGapi, initGIS, signIn, isSignedIn, updateMonthlySheet, assignStudentToClassRecurring, removeStudentFromClassRecurring, registerStudentAbsence, assignStudentToClassSingleDay, updatePaymentStatus, loadPlanCosts, savePlanCosts, createStudent, updateStudent, deleteStudent } from './services/googleSheetsService';
 
 import Header from './components/Header';
 import ScheduleView from './components/ScheduleView';
@@ -111,6 +111,12 @@ const App: React.FC = () => {
             const currentDate = new Date();
             const monthYear = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
             await updateMonthlySheet(schedule, students, monthYear);
+
+            // Load plan costs
+            const loadedCosts = await loadPlanCosts();
+            if (loadedCosts) {
+                setPlanCosts(loadedCosts);
+            }
         } catch (err: any) {
             setError(err.message || 'Ocurrió un error desconocido.');
             console.error(err);
@@ -138,37 +144,60 @@ const App: React.FC = () => {
         setIsStudentFormOpen(true);
     };
 
-    const handleSaveStudent = (studentData: Student) => {
-        setStudents(prev => {
-            const index = prev.findIndex(s => s.id === studentData.id);
-            if (index > -1) {
-                const newStudents = [...prev];
-                newStudents[index] = studentData;
-                return newStudents;
+    const handleSaveStudent = async (studentData: Student) => {
+        try {
+            const isNewStudent = !students.find(s => s.id === studentData.id);
+
+            if (isNewStudent) {
+                // Create new student in Google Sheets
+                const createdStudent = await createStudent(studentData);
+                setStudents(prev => [...prev, createdStudent]);
+            } else {
+                // Update existing student in Google Sheets
+                await updateStudent(studentData);
+                setStudents(prev => {
+                    const newStudents = [...prev];
+                    const index = newStudents.findIndex(s => s.id === studentData.id);
+                    if (index > -1) {
+                        newStudents[index] = studentData;
+                    }
+                    return newStudents;
+                });
             }
-            return [...prev, studentData];
-        });
-        setIsStudentFormOpen(false);
+            setIsStudentFormOpen(false);
+        } catch (error: any) {
+            console.error('Error saving student:', error);
+            alert('Error al guardar la alumna: ' + (error.message || 'Error desconocido'));
+        }
     };
 
-    const handleDeleteStudent = (studentId: string) => {
+    const handleDeleteStudent = async (studentId: string) => {
         if (window.confirm('¿Seguro que quieres eliminar a esta alumna? Se cancelarán todas sus clases y se eliminarán sus registros de pago.')) {
-            setStudents(prev => prev.filter(s => s.id !== studentId));
-            setSchedule(prevSchedule => {
-                const newSchedule = JSON.parse(JSON.stringify(prevSchedule));
-                for (const day in newSchedule) {
-                    newSchedule[day] = newSchedule[day].map((c: Class) => ({
-                        ...c,
-                        bookings: c.bookings.filter(b => b.studentId !== studentId)
-                    }));
-                }
-                return newSchedule;
-            });
-            setPayments(prev => {
-                const newPayments = { ...prev };
-                delete newPayments[studentId];
-                return newPayments;
-            });
+            try {
+                // Mark student as deleted in Google Sheets
+                await deleteStudent(studentId);
+
+                // Update local state
+                setStudents(prev => prev.filter(s => s.id !== studentId));
+                setSchedule(prevSchedule => {
+                    const newSchedule = JSON.parse(JSON.stringify(prevSchedule));
+                    for (const day in newSchedule) {
+                        newSchedule[day] = newSchedule[day].map((c: Class) => ({
+                            ...c,
+                            bookings: c.bookings.filter(b => b.studentId !== studentId)
+                        }));
+                    }
+                    return newSchedule;
+                });
+                setPayments(prev => {
+                    const newPayments = { ...prev };
+                    delete newPayments[studentId];
+                    return newPayments;
+                });
+            } catch (error: any) {
+                console.error('Error deleting student:', error);
+                alert('Error al eliminar la alumna: ' + (error.message || 'Error desconocido'));
+            }
         }
     };
 
@@ -445,8 +474,14 @@ const App: React.FC = () => {
         return count;
     };
 
-    const handleSavePlanCosts = (newCosts: PlanCosts) => {
-        setPlanCosts(newCosts);
+    const handleSavePlanCosts = async (newCosts: PlanCosts) => {
+        try {
+            await savePlanCosts(newCosts);
+            setPlanCosts(newCosts);
+        } catch (error) {
+            console.error("Error saving plan costs:", error);
+            throw error;
+        }
     };
 
     const renderContent = () => {

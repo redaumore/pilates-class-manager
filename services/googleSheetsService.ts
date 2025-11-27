@@ -6,6 +6,7 @@ import {
   Plan,
   AssignmentType,
   AttendanceStatus,
+  PlanCosts,
 } from '../types';
 import { generateInitialSchedule, DAY_CODE_MAP, DAY_NAME_TO_CODE } from '../constants';
 
@@ -15,6 +16,7 @@ declare const google: any;
 
 const SPREADSHEET_ID = '1onA2BHky-848DFSbaeTa_Qw-r8ZwpZ9nJteIn8-d1cc';
 const SHEET_NAME = '2025';
+const CONFIG_SHEET_NAME = '2025-config';
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
 
@@ -1159,5 +1161,503 @@ export const assignStudentToClassSingleDay = async (
   } catch (err: any) {
     console.error('Error assigning student for single day:', err);
     throw err;
+  }
+};
+
+export const loadPlanCosts = async (): Promise<PlanCosts | null> => {
+  try {
+    if (!accessToken) return null;
+    gapi.client.setToken({ access_token: accessToken });
+
+    // Check if config sheet exists
+    const spreadsheet = await gapi.client.sheets.spreadsheets.get({
+      spreadsheetId: SPREADSHEET_ID,
+    });
+
+    const sheetExists = spreadsheet.result.sheets.some(
+      (sheet: any) => sheet.properties.title === CONFIG_SHEET_NAME
+    );
+
+    if (!sheetExists) {
+      return null; // Return null to use defaults
+    }
+
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${CONFIG_SHEET_NAME}!A:D`,
+    });
+
+    const rows = response.result.values;
+    if (!rows || rows.length < 2) return null;
+
+    const header = rows[0].map((h: string) => h.trim());
+    const planIndex = header.indexOf('Plan');
+    const cuotaIndex = header.indexOf('Cuota');
+    const estadoIndex = header.indexOf('Estado');
+
+    if (planIndex === -1 || cuotaIndex === -1 || estadoIndex === -1) return null;
+
+    const costs: PlanCosts = {} as PlanCosts;
+    let foundAny = false;
+
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (row[estadoIndex] === 'Vigente') {
+        const plan = parseInt(row[planIndex], 10) as Plan;
+        const cuota = parseInt(row[cuotaIndex], 10);
+        if (!isNaN(plan) && !isNaN(cuota)) {
+          costs[plan] = cuota;
+          foundAny = true;
+        }
+      }
+    }
+
+    return foundAny ? costs : null;
+
+  } catch (err) {
+    console.error('Error loading plan costs:', err);
+    return null;
+  }
+};
+
+export const savePlanCosts = async (newCosts: PlanCosts) => {
+  try {
+    if (!accessToken) throw new Error('Usuario no autenticado');
+    gapi.client.setToken({ access_token: accessToken });
+
+    // 1. Ensure sheet exists
+    const spreadsheet = await gapi.client.sheets.spreadsheets.get({
+      spreadsheetId: SPREADSHEET_ID,
+    });
+
+    let sheetExists = spreadsheet.result.sheets.some(
+      (sheet: any) => sheet.properties.title === CONFIG_SHEET_NAME
+    );
+
+    if (!sheetExists) {
+      await gapi.client.sheets.spreadsheets.batchUpdate({
+        spreadsheetId: SPREADSHEET_ID,
+        resource: {
+          requests: [{
+            addSheet: {
+              properties: { title: CONFIG_SHEET_NAME }
+            }
+          }]
+        }
+      });
+
+      // Add header
+      await gapi.client.sheets.spreadsheets.values.update({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `${CONFIG_SHEET_NAME}!A1`,
+        valueInputOption: 'RAW',
+        resource: {
+          values: [['Plan', 'Cuota', 'Estado', 'Modificado']]
+        }
+      });
+    }
+
+    // 2. Mark current "Vigente" as "Inactivo"
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${CONFIG_SHEET_NAME}!A:D`,
+    });
+
+    const rows = response.result.values;
+    if (rows && rows.length > 1) {
+      const header = rows[0].map((h: string) => h.trim());
+      const estadoIndex = header.indexOf('Estado');
+
+      if (estadoIndex !== -1) {
+        // Find all rows that are 'Vigente'
+        const updates = [];
+        for (let i = 1; i < rows.length; i++) {
+          if (rows[i][estadoIndex] === 'Vigente') {
+            // We need to update this cell to 'Inactivo'
+            // i + 1 is the row number
+            const colLetter = String.fromCharCode(65 + estadoIndex); // Assuming < 26 columns
+            updates.push({
+              range: `${CONFIG_SHEET_NAME}!${colLetter}${i + 1}`,
+              values: [['Inactivo']]
+            });
+          }
+        }
+
+        // Execute updates (sequentially or batch if we constructed a batch request, 
+        // but values.batchUpdate is better for multiple ranges, though simple loop is fine for low volume)
+        // Let's use loop for simplicity as volume is low (3 plans)
+        for (const update of updates) {
+          await gapi.client.sheets.spreadsheets.values.update({
+            spreadsheetId: SPREADSHEET_ID,
+            range: update.range,
+            valueInputOption: 'RAW',
+            resource: { values: update.values }
+          });
+        }
+      }
+    }
+
+    // 3. Append new costs
+    const today = new Date();
+    const dateStr = `${today.getDate().toString().padStart(2, '0')}-${(today.getMonth() + 1).toString().padStart(2, '0')}-${today.getFullYear()}`;
+
+    const newRows = Object.entries(newCosts).map(([plan, cost]) => [
+      plan,
+      cost,
+      'Vigente',
+      dateStr
+    ]);
+
+    await gapi.client.sheets.spreadsheets.values.append({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${CONFIG_SHEET_NAME}!A:D`,
+      valueInputOption: 'RAW',
+      resource: { values: newRows }
+    });
+
+    console.log('Plan costs saved successfully');
+
+  } catch (err: any) {
+    console.error('Error saving plan costs:', err);
+    throw new Error('Error al guardar la configuración de costos: ' + err.message);
+  }
+};
+
+/**
+ * Create a new student in the Google Sheet
+ * Validates that the student doesn't already exist (by NOMBRE and APELLIDO)
+ * Generates a new ID (max existing ID + 1)
+ * Sets ESTADO to 'OK' and INGRESO to the provided date or today
+ */
+export const createStudent = async (student: Student): Promise<Student> => {
+  try {
+    if (!accessToken) throw new Error('Usuario no autenticado');
+    gapi.client.setToken({ access_token: accessToken });
+
+    // 1. Load existing data to check for duplicates and get max ID
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${SHEET_NAME}!A:W`,
+    });
+
+    const rows = response.result.values;
+    if (!rows || rows.length < 1) {
+      throw new Error('No se pudo leer la hoja de alumnos');
+    }
+
+    const header = rows[0].map((h: string) => h.trim());
+    const idIndex = header.indexOf('ID');
+    const nombreIndex = header.indexOf('NOMBRE');
+    const apellidoIndex = header.indexOf('APELLIDO');
+    const estadoIndex = header.indexOf('ESTADO');
+
+    if (idIndex === -1 || nombreIndex === -1 || apellidoIndex === -1) {
+      throw new Error('No se encontraron las columnas necesarias en la hoja');
+    }
+
+    // 2. Check for duplicate (NOMBRE + APELLIDO)
+    const nombreLower = student.nombre.trim().toLowerCase();
+    const apellidoLower = student.apellido.trim().toLowerCase();
+
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      const existingNombre = (row[nombreIndex] || '').trim().toLowerCase();
+      const existingApellido = (row[apellidoIndex] || '').trim().toLowerCase();
+      const estado = (row[estadoIndex] || '').trim();
+
+      // Only check active students
+      if (estado === 'OK' && existingNombre === nombreLower && existingApellido === apellidoLower) {
+        throw new Error(`Ya existe una alumna con el nombre ${student.nombre} ${student.apellido}`);
+      }
+    }
+
+    // 3. Generate new ID (max + 1)
+    let maxId = 0;
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      const currentId = parseInt(row[idIndex], 10);
+      if (!isNaN(currentId) && currentId > maxId) {
+        maxId = currentId;
+      }
+    }
+    const newId = (maxId + 1).toString();
+
+    // 4. Prepare the new row data
+    // Map level to letter code
+    const levelCode = Object.entries(LEVEL_MAP).find(([code, level]) => level === student.nivel)?.[0] || 'B';
+
+    // Format phone (remove 54911 prefix if present for storage)
+    let phoneForSheet = student.telefono.replace(/^54911/, '');
+
+    // Format date for sheet (DD/MM/YYYY)
+    const formatDateForSheet = (dateStr: string): string => {
+      if (!dateStr) {
+        const today = new Date();
+        return `${today.getDate().toString().padStart(2, '0')}/${(today.getMonth() + 1).toString().padStart(2, '0')}/${today.getFullYear()}`;
+      }
+      // If dateStr is YYYY-MM-DD, convert to DD/MM/YYYY
+      const parts = dateStr.split('-');
+      if (parts.length === 3 && parts[0].length === 4) {
+        return `${parts[2]}/${parts[1]}/${parts[0]}`;
+      }
+      return dateStr;
+    };
+
+    const ingresoDate = formatDateForSheet(student.fecha_inscripcion);
+
+    // Build the row according to the sheet structure
+    // Columns: ID, NOMBRE, APELLIDO, TELEFONO, ESTADO, NIVEL, PLAN, CLASE 1, CLASE 2, CLASE 3, INGRESO, ENE-DIC (12 months), RECUPERAR
+    const newRow: any[] = [];
+
+    for (let i = 0; i < header.length; i++) {
+      const colName = header[i];
+      switch (colName) {
+        case 'ID':
+          newRow[i] = newId;
+          break;
+        case 'NOMBRE':
+          newRow[i] = student.nombre;
+          break;
+        case 'APELLIDO':
+          newRow[i] = student.apellido;
+          break;
+        case 'TELEFONO':
+          newRow[i] = phoneForSheet;
+          break;
+        case 'ESTADO':
+          newRow[i] = 'OK';
+          break;
+        case 'NIVEL':
+          newRow[i] = levelCode;
+          break;
+        case 'PLAN':
+          newRow[i] = student.plan.toString();
+          break;
+        case 'INGRESO':
+          newRow[i] = ingresoDate;
+          break;
+        case 'RECUPERAR':
+          newRow[i] = (student.clases_recuperacion || 0).toString();
+          break;
+        case 'CLASE 1':
+        case 'CLASE 2':
+        case 'CLASE 3':
+          newRow[i] = ''; // Empty by default
+          break;
+        default:
+          // Payment months (ENE, FEB, etc.) - leave empty
+          if (Object.keys(MONTH_MAP).includes(colName)) {
+            newRow[i] = '';
+          } else {
+            newRow[i] = '';
+          }
+      }
+    }
+
+    // 5. Append the new row to the sheet
+    await gapi.client.sheets.spreadsheets.values.append({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${SHEET_NAME}!A:W`,
+      valueInputOption: 'RAW',
+      resource: { values: [newRow] },
+    });
+
+    console.log(`Alumna creada exitosamente con ID ${newId}`);
+
+    // Return the student with the new ID
+    return {
+      ...student,
+      id: newId,
+      fecha_inscripcion: student.fecha_inscripcion || new Date().toISOString().split('T')[0],
+    };
+  } catch (err: any) {
+    console.error('Error creating student:', err);
+    throw new Error('Error al crear la alumna: ' + (err.message || 'Error desconocido'));
+  }
+};
+
+/**
+ * Update an existing student in the Google Sheet
+ * Finds the student by ID and updates their information
+ */
+export const updateStudent = async (student: Student): Promise<void> => {
+  try {
+    if (!accessToken) throw new Error('Usuario no autenticado');
+    gapi.client.setToken({ access_token: accessToken });
+
+    // 1. Load existing data to find the student row
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${SHEET_NAME}!A:W`,
+    });
+
+    const rows = response.result.values;
+    if (!rows || rows.length < 2) {
+      throw new Error('No se encontraron datos en la hoja de alumnos');
+    }
+
+    const header = rows[0].map((h: string) => h.trim());
+    const idIndex = header.indexOf('ID');
+    const nombreIndex = header.indexOf('NOMBRE');
+    const apellidoIndex = header.indexOf('APELLIDO');
+    const telefonoIndex = header.indexOf('TELEFONO');
+    const nivelIndex = header.indexOf('NIVEL');
+    const planIndex = header.indexOf('PLAN');
+    const recuperarIndex = header.indexOf('RECUPERAR');
+
+    if (idIndex === -1) {
+      throw new Error('No se encontró la columna ID en la hoja');
+    }
+
+    // 2. Find the student row
+    let rowIndex = -1;
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][idIndex] === student.id) {
+        rowIndex = i + 1; // 1-based index for Sheets API
+        break;
+      }
+    }
+
+    if (rowIndex === -1) {
+      throw new Error(`No se encontró la alumna con ID ${student.id}`);
+    }
+
+    // 3. Prepare updates for specific cells
+    const levelCode = Object.entries(LEVEL_MAP).find(([code, level]) => level === student.nivel)?.[0] || 'B';
+    let phoneForSheet = student.telefono.replace(/^54911/, '');
+
+    const updates: any[] = [];
+
+    // Helper to get column letter
+    const getColumnLetter = (index: number) => {
+      let letter = '';
+      while (index >= 0) {
+        letter = String.fromCharCode((index % 26) + 65) + letter;
+        index = Math.floor(index / 26) - 1;
+      }
+      return letter;
+    };
+
+    // Update each field
+    if (nombreIndex !== -1) {
+      updates.push({
+        range: `${SHEET_NAME}!${getColumnLetter(nombreIndex)}${rowIndex}`,
+        values: [[student.nombre]],
+      });
+    }
+    if (apellidoIndex !== -1) {
+      updates.push({
+        range: `${SHEET_NAME}!${getColumnLetter(apellidoIndex)}${rowIndex}`,
+        values: [[student.apellido]],
+      });
+    }
+    if (telefonoIndex !== -1) {
+      updates.push({
+        range: `${SHEET_NAME}!${getColumnLetter(telefonoIndex)}${rowIndex}`,
+        values: [[phoneForSheet]],
+      });
+    }
+    if (nivelIndex !== -1) {
+      updates.push({
+        range: `${SHEET_NAME}!${getColumnLetter(nivelIndex)}${rowIndex}`,
+        values: [[levelCode]],
+      });
+    }
+    if (planIndex !== -1) {
+      updates.push({
+        range: `${SHEET_NAME}!${getColumnLetter(planIndex)}${rowIndex}`,
+        values: [[student.plan.toString()]],
+      });
+    }
+    if (recuperarIndex !== -1) {
+      updates.push({
+        range: `${SHEET_NAME}!${getColumnLetter(recuperarIndex)}${rowIndex}`,
+        values: [[(student.clases_recuperacion || 0).toString()]],
+      });
+    }
+
+    // 4. Batch update all cells
+    if (updates.length > 0) {
+      await gapi.client.sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId: SPREADSHEET_ID,
+        resource: {
+          valueInputOption: 'RAW',
+          data: updates,
+        },
+      });
+    }
+
+    console.log(`Alumna ${student.id} actualizada exitosamente`);
+  } catch (err: any) {
+    console.error('Error updating student:', err);
+    throw new Error('Error al actualizar la alumna: ' + (err.message || 'Error desconocido'));
+  }
+};
+
+/**
+ * Delete a student by marking their ESTADO as 'BORRADA'
+ * Does not physically delete the row, just marks it as deleted
+ */
+export const deleteStudent = async (studentId: string): Promise<void> => {
+  try {
+    if (!accessToken) throw new Error('Usuario no autenticado');
+    gapi.client.setToken({ access_token: accessToken });
+
+    // 1. Load existing data to find the student row
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${SHEET_NAME}!A:W`,
+    });
+
+    const rows = response.result.values;
+    if (!rows || rows.length < 2) {
+      throw new Error('No se encontraron datos en la hoja de alumnos');
+    }
+
+    const header = rows[0].map((h: string) => h.trim());
+    const idIndex = header.indexOf('ID');
+    const estadoIndex = header.indexOf('ESTADO');
+
+    if (idIndex === -1 || estadoIndex === -1) {
+      throw new Error('No se encontraron las columnas necesarias en la hoja');
+    }
+
+    // 2. Find the student row
+    let rowIndex = -1;
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][idIndex] === studentId) {
+        rowIndex = i + 1; // 1-based index for Sheets API
+        break;
+      }
+    }
+
+    if (rowIndex === -1) {
+      throw new Error(`No se encontró la alumna con ID ${studentId}`);
+    }
+
+    // 3. Update ESTADO to 'BORRADA'
+    const getColumnLetter = (index: number) => {
+      let letter = '';
+      while (index >= 0) {
+        letter = String.fromCharCode((index % 26) + 65) + letter;
+        index = Math.floor(index / 26) - 1;
+      }
+      return letter;
+    };
+
+    const colLetter = getColumnLetter(estadoIndex);
+    const range = `${SHEET_NAME}!${colLetter}${rowIndex}`;
+
+    await gapi.client.sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: range,
+      valueInputOption: 'RAW',
+      resource: { values: [['BORRADA']] },
+    });
+
+    console.log(`Alumna ${studentId} marcada como BORRADA exitosamente`);
+  } catch (err: any) {
+    console.error('Error deleting student:', err);
+    throw new Error('Error al eliminar la alumna: ' + (err.message || 'Error desconocido'));
   }
 };

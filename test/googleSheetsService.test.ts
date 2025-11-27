@@ -7,6 +7,9 @@ import {
     loadDataFromSheet,
     assignStudentToClassSingleDay,
     signIn,
+    updatePaymentStatus,
+    loadPlanCosts,
+    savePlanCosts,
 } from '../services/googleSheetsService';
 import { AssignmentType, AttendanceStatus } from '../types';
 
@@ -242,12 +245,12 @@ describe('googleSheetsService', () => {
             // It should clear and then write back the filtered list
             expect(mockGapi.client.sheets.spreadsheets.values.clear).toHaveBeenCalledWith({
                 spreadsheetId: expect.any(String),
-                range: '2025-11!A:Z',
+                range: '2025-11!A:G',
             });
 
             expect(mockGapi.client.sheets.spreadsheets.values.update).toHaveBeenCalledWith({
                 spreadsheetId: expect.any(String),
-                range: '2025-11!A1',
+                range: '2025-11!A1:G3',
                 valueInputOption: 'RAW',
                 resource: {
                     values: [
@@ -455,5 +458,174 @@ describe('googleSheetsService', () => {
                 .rejects.toThrow('No tiene clases para recuperar');
         });
     });
-});
 
+
+    describe('updatePaymentStatus', () => {
+        it('should update payment status for a student in the correct month column', async () => {
+            await signIn();
+
+            // Mock '2025' sheet data
+            mockGapi.client.sheets.spreadsheets.values.get.mockResolvedValueOnce({
+                result: {
+                    values: [
+                        ['ID', 'ENE', 'FEB', 'MAR'], // Header
+                        ['123', '', '', ''], // Student row
+                    ],
+                },
+            });
+
+            await updatePaymentStatus('123', '2025-02', '2025-02-15');
+
+            // Verify update
+            // FEB is at index 2 -> Column C
+            // Row index is 2
+            expect(mockGapi.client.sheets.spreadsheets.values.update).toHaveBeenCalledWith({
+                spreadsheetId: expect.any(String),
+                range: '2025!C2',
+                valueInputOption: 'RAW',
+                resource: { values: [['15-02-2025']] }, // Formatted as DD-MM-YYYY
+            });
+        });
+
+        it('should throw error if student not found', async () => {
+            await signIn();
+
+            mockGapi.client.sheets.spreadsheets.values.get.mockResolvedValueOnce({
+                result: {
+                    values: [
+                        ['ID', 'ENE'],
+                        ['999', ''],
+                    ],
+                },
+            });
+
+            await expect(updatePaymentStatus('123', '2025-01', '2025-01-15'))
+                .rejects.toThrow('Estudiante no encontrado');
+        });
+    });
+
+    describe('loadPlanCosts', () => {
+        it('should load active plan costs', async () => {
+            await signIn();
+
+            // Mock sheet exists check
+            mockGapi.client.sheets.spreadsheets.get.mockResolvedValueOnce({
+                result: {
+                    sheets: [{ properties: { title: '2025-config' } }],
+                },
+            });
+
+            // Mock config sheet data
+            mockGapi.client.sheets.spreadsheets.values.get.mockResolvedValueOnce({
+                result: {
+                    values: [
+                        ['Plan', 'Cuota', 'Estado', 'Modificado'],
+                        ['1', '1000', 'Vigente', '01-01-2025'],
+                        ['1', '800', 'Inactivo', '01-01-2024'],
+                        ['2', '2000', 'Vigente', '01-01-2025'],
+                    ],
+                },
+            });
+
+            const costs = await loadPlanCosts();
+
+            expect(costs).toEqual({
+                1: 1000,
+                2: 2000,
+            });
+        });
+
+        it('should return null if config sheet does not exist', async () => {
+            await signIn();
+
+            mockGapi.client.sheets.spreadsheets.get.mockResolvedValueOnce({
+                result: {
+                    sheets: [{ properties: { title: 'Other' } }],
+                },
+            });
+
+            const costs = await loadPlanCosts();
+            expect(costs).toBeNull();
+        });
+    });
+
+    describe('savePlanCosts', () => {
+        it('should archive old costs and save new ones', async () => {
+            await signIn();
+
+            // Mock sheet exists check (exists)
+            mockGapi.client.sheets.spreadsheets.get.mockResolvedValue({
+                result: {
+                    sheets: [{ properties: { title: '2025-config' } }],
+                },
+            });
+
+            // Mock existing data to find 'Vigente' rows
+            mockGapi.client.sheets.spreadsheets.values.get.mockResolvedValueOnce({
+                result: {
+                    values: [
+                        ['Plan', 'Cuota', 'Estado', 'Modificado'],
+                        ['1', '1000', 'Vigente', '01-01-2025'], // Row 2
+                    ],
+                },
+            });
+
+            const newCosts = { 1: 1200, 2: 2200 };
+            await savePlanCosts(newCosts as any);
+
+            // Verify marking old as Inactivo
+            // 'Estado' is index 2 -> Column C
+            // Row 2
+            expect(mockGapi.client.sheets.spreadsheets.values.update).toHaveBeenCalledWith({
+                spreadsheetId: expect.any(String),
+                range: '2025-config!C2',
+                valueInputOption: 'RAW',
+                resource: { values: [['Inactivo']] },
+            });
+
+            // Verify appending new costs
+            expect(mockGapi.client.sheets.spreadsheets.values.append).toHaveBeenCalledWith({
+                spreadsheetId: expect.any(String),
+                range: '2025-config!A:D',
+                valueInputOption: 'RAW',
+                resource: {
+                    values: expect.arrayContaining([
+                        expect.arrayContaining(['1', 1200, 'Vigente']),
+                        expect.arrayContaining(['2', 2200, 'Vigente']),
+                    ]),
+                },
+            });
+        });
+
+        it('should create sheet if it does not exist', async () => {
+            await signIn();
+
+            // Mock sheet exists check (does not exist)
+            mockGapi.client.sheets.spreadsheets.get.mockResolvedValueOnce({
+                result: {
+                    sheets: [],
+                },
+            });
+            // Second call for marking inactive (return empty or just header)
+            mockGapi.client.sheets.spreadsheets.values.get.mockResolvedValueOnce({
+                result: { values: [['Plan', 'Cuota', 'Estado', 'Modificado']] }
+            });
+
+
+            const newCosts = { 1: 1200 };
+            await savePlanCosts(newCosts as any);
+
+            // Verify create sheet
+            expect(mockGapi.client.sheets.spreadsheets.batchUpdate).toHaveBeenCalled();
+            // Verify header creation
+            expect(mockGapi.client.sheets.spreadsheets.values.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    range: '2025-config!A1',
+                })
+            );
+        });
+    });
+
+
+
+});

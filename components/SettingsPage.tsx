@@ -3,12 +3,13 @@ import { PlanCosts, Plan } from '../types';
 
 interface SettingsPageProps {
   planCosts: PlanCosts;
-  onSave: (newCosts: PlanCosts) => void;
+  onSave: (newCosts: PlanCosts) => Promise<void>;
 }
 
 const SettingsPage: React.FC<SettingsPageProps> = ({ planCosts, onSave }) => {
   const [costs, setCosts] = useState<PlanCosts>(planCosts);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setCosts(planCosts);
@@ -21,20 +22,32 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ planCosts, onSave }) => {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaveStatus('saving');
-    onSave(costs);
-    setTimeout(() => {
+    setError(null);
+    try {
+      await onSave(costs);
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 2000);
-    }, 500);
+    } catch (err) {
+      console.error(err);
+      setSaveStatus('idle');
+      setError('Hubo un problema al guardar la configuración. Por favor intenta nuevamente.');
+    }
   };
 
   return (
     <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md max-w-lg mx-auto">
       <h2 className="text-xl font-bold text-blue-800 mb-6">Configuración del Negocio</h2>
-      
+
+      {error && (
+        <div className="bg-red-50 border-l-4 border-red-500 text-red-700 p-4 mb-6 rounded-r-md" role="alert">
+          <p className="font-bold">Error</p>
+          <p>{error}</p>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
           <h3 className="text-lg font-semibold text-slate-700 mb-3">Costes de los Planes Mensuales</h3>
@@ -63,7 +76,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ planCosts, onSave }) => {
             ))}
           </div>
         </div>
-        
+
         <div className="pt-5">
           <div className="flex justify-end">
             <button
