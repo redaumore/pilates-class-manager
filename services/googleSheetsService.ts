@@ -1416,10 +1416,10 @@ export const createStudent = async (student: Student): Promise<Student> => {
           newRow[i] = newId;
           break;
         case 'NOMBRE':
-          newRow[i] = student.nombre;
+          newRow[i] = student.nombre.toUpperCase();
           break;
         case 'APELLIDO':
-          newRow[i] = student.apellido;
+          newRow[i] = student.apellido.toUpperCase();
           break;
         case 'TELEFONO':
           newRow[i] = phoneForSheet;
