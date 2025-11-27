@@ -7,10 +7,25 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies
 node_modules
+
+# Build outputs
 dist
 dist-ssr
 *.local
+
+# Environment variables (IMPORTANTE: protege credenciales)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Google API credentials
+credentials.json
+token.json
+client_secret*.json
 
 # Editor directories and files
 .vscode/*
@@ -22,3 +37,16 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test coverage
+coverage
+*.lcov
+
+# Temporary files
+*.tmp
+*.temp
+.cache
