@@ -21,20 +21,20 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, size = 
   };
 
   return (
-    <div 
+    <div
       className="fixed inset-0 bg-black bg-opacity-50 z-40 flex items-center justify-center p-4 transition-opacity duration-300"
       onClick={onClose}
     >
       <div
-        className={`bg-white rounded-xl shadow-2xl w-full ${sizeClasses[size]} flex flex-col transform transition-all duration-300 scale-95 opacity-0 animate-fade-in-scale`}
+        className={`bg-white rounded-xl shadow-2xl w-full ${sizeClasses[size]} max-w-[95vw] flex flex-col transform transition-all duration-300 scale-95 opacity-0 animate-fade-in-scale`}
         onClick={(e) => e.stopPropagation()}
         style={{ animation: 'fade-in-scale 0.3s forwards' }}
       >
-        <div className="flex items-center justify-between p-4 border-b border-slate-200">
-          <h2 className="text-lg font-semibold text-slate-700">{title}</h2>
+        <div className="flex items-start justify-between p-4 border-b border-slate-200 gap-3">
+          <h2 className="text-lg font-semibold text-slate-700 break-words leading-tight">{title}</h2>
           <button
             onClick={onClose}
-            className="p-1 rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="p-1 rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 flex-shrink-0 mt-1"
           >
             <XIcon className="w-5 h-5" />
           </button>
@@ -57,4 +57,3 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, size = 
 };
 
 export default Modal;
-   

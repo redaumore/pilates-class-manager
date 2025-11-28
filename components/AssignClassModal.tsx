@@ -88,16 +88,16 @@ const AssignClassModal: React.FC<AssignClassModalProps> = ({ isOpen, onClose, on
               const isLevelCompatible = classLevelNum === -1 || studentLevelNum >= classLevelNum - 1;
 
               return (
-                <div key={student.id} className={`flex items-center justify-between p-3 rounded-lg ${!isLevelCompatible ? 'bg-orange-50' : 'bg-slate-50'}`}>
-                  <div>
-                    <p className="font-semibold text-slate-800">{student.nombre} {student.apellido}</p>
-                    <p className={`text-sm ${!isLevelCompatible ? 'text-orange-600' : 'text-slate-500'}`}>
+                <div key={student.id} className={`flex items-center justify-between p-3 rounded-lg ${!isLevelCompatible ? 'bg-orange-50' : 'bg-slate-50'} gap-3`}>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-slate-800 truncate">{student.nombre} {student.apellido}</p>
+                    <p className={`text-sm ${!isLevelCompatible ? 'text-orange-600' : 'text-slate-500'} truncate`}>
                       Nivel: {student.nivel} {!isLevelCompatible && "(Advertencia de nivel)"}
                     </p>
                   </div>
                   <button
                     onClick={() => onStudentSelected(student)}
-                    className="px-3 py-1 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700"
+                    className="px-3 py-1 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 flex-shrink-0"
                   >
                     Añadir
                   </button>

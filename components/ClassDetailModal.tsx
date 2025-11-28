@@ -23,27 +23,27 @@ const ClassDetailModal: React.FC<ClassDetailModalProps> = ({ isOpen, onClose, cl
 
   const bookedStudents = useMemo(() => {
     if (!classData || !date) return [];
-    
+
     const absentStudentIds = new Set(
-        (classData.absences ?? []).filter(a => a.date === date).map(a => a.studentId)
+      (classData.absences ?? []).filter(a => a.date === date).map(a => a.studentId)
     );
 
     const permanentStudentIds = new Set(
-        classData.bookings
-            .filter(b => b.startDate <= date)
-            .map(b => b.studentId)
-            .filter(id => !absentStudentIds.has(id))
+      classData.bookings
+        .filter(b => b.startDate <= date)
+        .map(b => b.studentId)
+        .filter(id => !absentStudentIds.has(id))
     );
 
     const oneTimeStudentIds = new Set(
-        (classData.oneTimeBookings ?? []).filter(b => b.date === date).map(b => b.studentId)
+      (classData.oneTimeBookings ?? []).filter(b => b.date === date).map(b => b.studentId)
     );
 
     const allPresentIds = new Set([...permanentStudentIds, ...oneTimeStudentIds]);
 
     return Array.from(allPresentIds)
-        .map(id => allStudents.find(s => s.id === id))
-        .filter((s): s is Student => !!s);
+      .map(id => allStudents.find(s => s.id === id))
+      .filter((s): s is Student => !!s);
   }, [classData, allStudents, date]);
 
   const classLevelNum = useMemo(() => {
@@ -79,8 +79,8 @@ const ClassDetailModal: React.FC<ClassDetailModalProps> = ({ isOpen, onClose, cl
 
   const hasCapacity = bookedStudents.length < MAX_CAPACITY;
 
-  const formattedDate = date 
-    ? new Date(date + 'T00:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' }) 
+  const formattedDate = date
+    ? new Date(date + 'T00:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })
     : classData.day;
   const title = `Clase del ${formattedDate} a las ${classData.time}:00h`;
 
@@ -105,7 +105,7 @@ const ClassDetailModal: React.FC<ClassDetailModalProps> = ({ isOpen, onClose, cl
                 <ul className="space-y-2">
                   {bookedStudents.map(student => {
                     const studentLevelNum = LEVEL_HIERARCHY[student.nivel];
-                    const isLevelCompatible = classLevelNum === -1 || studentLevelNum >= classLevelNum -1;
+                    const isLevelCompatible = classLevelNum === -1 || studentLevelNum >= classLevelNum - 1;
                     return (
                       <li key={student.id} className="flex items-center justify-between p-2 bg-slate-50 rounded-md">
                         <div>
@@ -114,7 +114,7 @@ const ClassDetailModal: React.FC<ClassDetailModalProps> = ({ isOpen, onClose, cl
                             Nivel: {student.nivel} {!isLevelCompatible && "(Advertencia de nivel)"}
                           </p>
                         </div>
-                        <button 
+                        <button
                           onClick={() => handleOpenRemoveModal(student)}
                           className="p-1 text-red-500 hover:bg-red-100 rounded-full"
                           title="Quitar de la clase"
@@ -130,18 +130,18 @@ const ClassDetailModal: React.FC<ClassDetailModalProps> = ({ isOpen, onClose, cl
               )}
             </div>
           )}
-          <div className="pt-4 mt-4 border-t border-slate-200 flex justify-between items-center">
+          <div className="pt-4 mt-4 border-t border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-3">
             <button
               onClick={onAddStudent}
               disabled={!hasCapacity || classData.isCancelled}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed transition-colors"
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed transition-colors order-1 sm:order-none"
             >
               <PlusIcon className="w-5 h-5" />
               Añadir Alumna
             </button>
             <button
               onClick={() => onToggleCancel(classData.id)}
-              className={`px-4 py-2 rounded-lg text-white font-semibold ${classData.isCancelled ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}`}
+              className={`w-full sm:w-auto px-4 py-2 rounded-lg text-white font-semibold ${classData.isCancelled ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'} order-2 sm:order-none`}
             >
               {classData.isCancelled ? 'Reactivar Clase' : 'Cancelar Clase'}
             </button>

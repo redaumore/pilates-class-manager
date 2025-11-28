@@ -70,7 +70,7 @@ const AssignStudentModal: React.FC<AssignStudentModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50"
+            className="w-full sm:w-auto px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50"
           >
             Cancelar
           </button>
