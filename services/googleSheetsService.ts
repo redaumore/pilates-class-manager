@@ -7,6 +7,7 @@ import {
   AssignmentType,
   AttendanceStatus,
   PlanCosts,
+  NonWorkingDay,
 } from '../types';
 import { generateInitialSchedule, DAY_CODE_MAP, DAY_NAME_TO_CODE } from '../constants';
 
@@ -17,6 +18,7 @@ declare const google: any;
 const SPREADSHEET_ID = '1onA2BHky-848DFSbaeTa_Qw-r8ZwpZ9nJteIn8-d1cc';
 const SHEET_NAME = '2025';
 const CONFIG_SHEET_NAME = '2025-config';
+const HOLIDAYS_SHEET_NAME = '2025-feriados';
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
 
@@ -1659,5 +1661,142 @@ export const deleteStudent = async (studentId: string): Promise<void> => {
   } catch (err: any) {
     console.error('Error deleting student:', err);
     throw new Error('Error al eliminar la alumna: ' + (err.message || 'Error desconocido'));
+  }
+};
+
+// --- Non-Working Days Management ---
+
+const ensureHolidaysSheetExists = async () => {
+  try {
+    const spreadsheet = await gapi.client.sheets.spreadsheets.get({
+      spreadsheetId: SPREADSHEET_ID,
+    });
+
+    const sheetExists = spreadsheet.result.sheets.some(
+      (sheet: any) => sheet.properties.title === HOLIDAYS_SHEET_NAME
+    );
+
+    if (!sheetExists) {
+      await gapi.client.sheets.spreadsheets.batchUpdate({
+        spreadsheetId: SPREADSHEET_ID,
+        resource: {
+          requests: [
+            {
+              addSheet: {
+                properties: {
+                  title: HOLIDAYS_SHEET_NAME,
+                },
+              },
+            },
+          ],
+        },
+      });
+
+      // Add header
+      await gapi.client.sheets.spreadsheets.values.update({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `${HOLIDAYS_SHEET_NAME}!A1:D1`,
+        valueInputOption: 'RAW',
+        resource: {
+          values: [['ID', 'StartDate', 'EndDate', 'Description']],
+        },
+      });
+    }
+  } catch (error) {
+    console.error('Error ensuring holidays sheet exists:', error);
+    throw error;
+  }
+};
+
+export const loadNonWorkingDays = async (): Promise<NonWorkingDay[]> => {
+  try {
+    if (!accessToken) return [];
+    gapi.client.setToken({ access_token: accessToken });
+
+    await ensureHolidaysSheetExists();
+
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${HOLIDAYS_SHEET_NAME}!A:D`,
+    });
+
+    const rows = response.result.values;
+    if (!rows || rows.length < 2) return [];
+
+    // Skip header
+    return rows.slice(1).map((row: string[]) => ({
+      id: row[0],
+      startDate: row[1],
+      endDate: row[2],
+      description: row[3],
+    }));
+  } catch (err) {
+    console.error('Error loading non-working days:', err);
+    return [];
+  }
+};
+
+export const addNonWorkingDay = async (day: Omit<NonWorkingDay, 'id'>): Promise<NonWorkingDay> => {
+  try {
+    await ensureHolidaysSheetExists();
+
+    const newId = `holiday-${Date.now()}`;
+    const newRow = [newId, day.startDate, day.endDate, day.description];
+
+    await gapi.client.sheets.spreadsheets.values.append({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${HOLIDAYS_SHEET_NAME}!A:D`,
+      valueInputOption: 'RAW',
+      resource: { values: [newRow] },
+    });
+
+    return { id: newId, ...day };
+  } catch (err: any) {
+    console.error('Error adding non-working day:', err);
+    throw new Error('Error al agregar día no laborable: ' + (err.message || 'Error desconocido'));
+  }
+};
+
+const getSheetIdByName = async (sheetName: string): Promise<number> => {
+  const spreadsheet = await gapi.client.sheets.spreadsheets.get({
+    spreadsheetId: SPREADSHEET_ID,
+  });
+  const sheet = spreadsheet.result.sheets.find((s: any) => s.properties.title === sheetName);
+  return sheet ? sheet.properties.sheetId : 0;
+};
+
+export const deleteNonWorkingDay = async (id: string): Promise<void> => {
+  try {
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${HOLIDAYS_SHEET_NAME}!A:A`,
+    });
+
+    const rows = response.result.values;
+    if (!rows) return;
+
+    const rowIndex = rows.findIndex((row: string[]) => row[0] === id);
+    if (rowIndex === -1) return;
+
+    await gapi.client.sheets.spreadsheets.batchUpdate({
+      spreadsheetId: SPREADSHEET_ID,
+      resource: {
+        requests: [
+          {
+            deleteDimension: {
+              range: {
+                sheetId: await getSheetIdByName(HOLIDAYS_SHEET_NAME),
+                dimension: 'ROWS',
+                startIndex: rowIndex,
+                endIndex: rowIndex + 1,
+              },
+            },
+          },
+        ],
+      },
+    });
+  } catch (err: any) {
+    console.error('Error deleting non-working day:', err);
+    throw new Error('Error al eliminar día no laborable: ' + (err.message || 'Error desconocido'));
   }
 };

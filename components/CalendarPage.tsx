@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Schedule, Student, Class } from '../types';
+import { Schedule, Student, Class, NonWorkingDay } from '../types';
 import { ChevronLeftIcon, ChevronRightIcon, UserIcon } from './icons';
 import { MAX_CAPACITY } from '../constants';
 
@@ -18,9 +18,17 @@ interface CalendarPageProps {
   schedule: Schedule;
   students: Student[];
   onClassClick: (classData: Class, date: string) => void;
+  nonWorkingDays: NonWorkingDay[];
 }
 
-const CalendarPage: React.FC<CalendarPageProps> = ({ schedule, students, onClassClick }) => {
+const isDateNonWorking = (date: Date, holidays: NonWorkingDay[]): NonWorkingDay | undefined => {
+  const dateStr = date.toISOString().split('T')[0];
+  return holidays.find(h => {
+    return dateStr >= h.startDate && dateStr <= h.endDate;
+  });
+};
+
+const CalendarPage: React.FC<CalendarPageProps> = ({ schedule, students, onClassClick, nonWorkingDays }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
 
   const changeMonth = (amount: number) => {
@@ -51,7 +59,7 @@ const CalendarPage: React.FC<CalendarPageProps> = ({ schedule, students, onClass
     const firstDayOfWeek = monthWeekdays[0].getDay(); // 1 for Monday
     const padding = firstDayOfWeek - 1;
     for (let i = 0; i < padding; i++) {
-        calendarDays.push(null);
+      calendarDays.push(null);
     }
     calendarDays.push(...monthWeekdays);
   }
@@ -89,42 +97,49 @@ const CalendarPage: React.FC<CalendarPageProps> = ({ schedule, students, onClass
           const classesForDay = schedule[dayOfWeekName] || [];
           const isToday = day.getDate() === today.getDate() && day.getMonth() === today.getMonth() && day.getFullYear() === today.getFullYear();
           const dateString = day.toISOString().split('T')[0];
+          const holiday = isDateNonWorking(day, nonWorkingDays);
 
           return (
             <div
               key={day.toISOString()}
-              className={`border rounded-lg p-2 min-h-[120px] flex flex-col ${isToday ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'}`}
+              className={`border rounded-lg p-2 min-h-[120px] flex flex-col ${isToday ? 'border-blue-500 bg-blue-50' : holiday ? 'border-orange-200 bg-orange-50' : 'border-slate-200 bg-white'}`}
             >
-              <span className={`font-semibold mb-1 ${isToday ? 'text-blue-700' : 'text-slate-600'}`}>
+              <span className={`font-semibold mb-1 ${isToday ? 'text-blue-700' : holiday ? 'text-orange-700' : 'text-slate-600'}`}>
                 {day.getDate()}
               </span>
-              <div className="space-y-1 overflow-y-auto text-xs">
-                {classesForDay.map(classItem => {
-                   const absentStudentIds = new Set((classItem.absences ?? []).filter(a => a.date === dateString).map(a => a.studentId));
-                   const permanentStudentIds = new Set(
-                       classItem.bookings
+              <div className="space-y-1 overflow-y-auto text-xs flex-grow">
+                {holiday ? (
+                  <div className="h-full flex flex-col justify-center items-center text-center">
+                    <span className="text-orange-600 font-medium text-[10px] leading-tight">{holiday.description}</span>
+                  </div>
+                ) : (
+                  classesForDay.map(classItem => {
+                    const absentStudentIds = new Set((classItem.absences ?? []).filter(a => a.date === dateString).map(a => a.studentId));
+                    const permanentStudentIds = new Set(
+                      classItem.bookings
                         .filter(b => b.startDate <= dateString)
                         .map(b => b.studentId)
                         .filter(id => !absentStudentIds.has(id))
                     );
-                   const oneTimeStudentIds = new Set((classItem.oneTimeBookings ?? []).filter(b => b.date === dateString).map(b => b.studentId));
-                   const allPresentIds = new Set([...permanentStudentIds, ...oneTimeStudentIds]);
-                   const occupancy = allPresentIds.size;
-                   const occupancyColor = occupancy === MAX_CAPACITY ? 'bg-red-200 text-red-800' : occupancy > 0 ? 'bg-green-200 text-green-800' : 'bg-slate-200 text-slate-700';
-                  return (
-                    <div
-                      key={classItem.id}
-                      onClick={() => handleClassClick(classItem, day)}
-                      className={`p-1 rounded-md cursor-pointer hover:opacity-80 ${occupancyColor}`}
-                    >
-                      <div className="font-semibold">{classItem.time}:00</div>
-                      <div className="flex items-center justify-center gap-1">
-                          <UserIcon className="w-3 h-3"/>
+                    const oneTimeStudentIds = new Set((classItem.oneTimeBookings ?? []).filter(b => b.date === dateString).map(b => b.studentId));
+                    const allPresentIds = new Set([...permanentStudentIds, ...oneTimeStudentIds]);
+                    const occupancy = allPresentIds.size;
+                    const occupancyColor = occupancy === MAX_CAPACITY ? 'bg-red-200 text-red-800' : occupancy > 0 ? 'bg-green-200 text-green-800' : 'bg-slate-200 text-slate-700';
+                    return (
+                      <div
+                        key={classItem.id}
+                        onClick={() => handleClassClick(classItem, day)}
+                        className={`p-1 rounded-md cursor-pointer hover:opacity-80 ${occupancyColor}`}
+                      >
+                        <div className="font-semibold">{classItem.time}:00</div>
+                        <div className="flex items-center justify-center gap-1">
+                          <UserIcon className="w-3 h-3" />
                           <span>{occupancy}/{MAX_CAPACITY}</span>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })
+                )}
               </div>
             </div>
           );

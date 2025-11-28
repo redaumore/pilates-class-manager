@@ -1,8 +1,28 @@
 import React, { useState, useEffect } from 'react';
-import { Student, Schedule, Class, Booking, PaymentRecord, PlanCosts } from './types';
+import { Student, Schedule, Class, Booking, PaymentRecord, PlanCosts, NonWorkingDay } from './types';
 import { initialPlanCosts } from './dev-data';
 import { MAX_CAPACITY } from './constants';
-import { loadDataFromSheet, initGapi, initGIS, signIn, isSignedIn, updateMonthlySheet, assignStudentToClassRecurring, removeStudentFromClassRecurring, registerStudentAbsence, assignStudentToClassSingleDay, updatePaymentStatus, loadPlanCosts, savePlanCosts, createStudent, updateStudent, deleteStudent } from './services/googleSheetsService';
+import {
+    loadDataFromSheet,
+    initGapi,
+    initGIS,
+    signIn,
+    isSignedIn,
+    updateMonthlySheet,
+    assignStudentToClassRecurring,
+    removeStudentFromClassRecurring,
+    registerStudentAbsence,
+    assignStudentToClassSingleDay,
+    updatePaymentStatus,
+    loadPlanCosts,
+    savePlanCosts,
+    createStudent,
+    updateStudent,
+    deleteStudent,
+    loadNonWorkingDays,
+    addNonWorkingDay,
+    deleteNonWorkingDay
+} from './services/googleSheetsService';
 
 import Header from './components/Header';
 import ScheduleView from './components/ScheduleView';
@@ -22,6 +42,7 @@ const App: React.FC = () => {
     const [schedule, setSchedule] = useState<Schedule>({});
     const [payments, setPayments] = useState<PaymentRecord>({});
     const [planCosts, setPlanCosts] = useState<PlanCosts>(initialPlanCosts);
+    const [nonWorkingDays, setNonWorkingDays] = useState<NonWorkingDay[]>([]);
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -117,6 +138,11 @@ const App: React.FC = () => {
             if (loadedCosts) {
                 setPlanCosts(loadedCosts);
             }
+
+            // Load non-working days
+            const loadedHolidays = await loadNonWorkingDays();
+            setNonWorkingDays(loadedHolidays);
+
         } catch (err: any) {
             setError(err.message || 'Ocurrió un error desconocido.');
             console.error(err);
@@ -484,6 +510,26 @@ const App: React.FC = () => {
         }
     };
 
+    const handleAddNonWorkingDay = async (day: Omit<NonWorkingDay, 'id'>) => {
+        try {
+            const newDay = await addNonWorkingDay(day);
+            setNonWorkingDays(prev => [...prev, newDay]);
+        } catch (error) {
+            console.error("Error adding non-working day:", error);
+            throw error;
+        }
+    };
+
+    const handleDeleteNonWorkingDay = async (id: string) => {
+        try {
+            await deleteNonWorkingDay(id);
+            setNonWorkingDays(prev => prev.filter(d => d.id !== id));
+        } catch (error) {
+            console.error("Error deleting non-working day:", error);
+            throw error;
+        }
+    };
+
     const renderContent = () => {
         switch (currentView) {
             case 'schedule':
@@ -493,9 +539,15 @@ const App: React.FC = () => {
                     onClassClick={handleClassClick}
                     currentWeek={currentWeek}
                     onWeekChange={handleWeekChange}
+                    nonWorkingDays={nonWorkingDays}
                 />;
             case 'calendar':
-                return <CalendarPage schedule={schedule} students={students} onClassClick={handleClassClick} />;
+                return <CalendarPage
+                    schedule={schedule}
+                    students={students}
+                    onClassClick={handleClassClick}
+                    nonWorkingDays={nonWorkingDays}
+                />;
             case 'students':
                 return <StudentManagementPage
                     students={students}
@@ -515,6 +567,9 @@ const App: React.FC = () => {
                 return <SettingsPage
                     planCosts={planCosts}
                     onSave={handleSavePlanCosts}
+                    nonWorkingDays={nonWorkingDays}
+                    onAddNonWorkingDay={handleAddNonWorkingDay}
+                    onDeleteNonWorkingDay={handleDeleteNonWorkingDay}
                 />;
         }
     }

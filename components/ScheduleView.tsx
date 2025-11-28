@@ -1,5 +1,5 @@
 import React from 'react';
-import { Schedule, Student, Class, Level } from '../types';
+import { Schedule, Student, Class, Level, NonWorkingDay } from '../types';
 import { MAX_CAPACITY } from '../constants';
 import { UserIcon, ChevronLeftIcon, ChevronRightIcon } from './icons';
 
@@ -131,9 +131,17 @@ interface ScheduleViewProps {
   onClassClick: (classData: Class, date: string) => void;
   currentWeek: Date;
   onWeekChange: (direction: 'next' | 'prev') => void;
+  nonWorkingDays: NonWorkingDay[];
 }
 
-const ScheduleView: React.FC<ScheduleViewProps> = ({ schedule, students, onClassClick, currentWeek, onWeekChange }) => {
+const isDateNonWorking = (date: Date, holidays: NonWorkingDay[]): NonWorkingDay | undefined => {
+  const dateStr = date.toISOString().split('T')[0];
+  return holidays.find(h => {
+    return dateStr >= h.startDate && dateStr <= h.endDate;
+  });
+};
+
+const ScheduleView: React.FC<ScheduleViewProps> = ({ schedule, students, onClassClick, currentWeek, onWeekChange, nonWorkingDays }) => {
   const { weekDates, rangeString } = getWeekInfo(currentWeek);
 
   return (
@@ -153,6 +161,7 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ schedule, students, onClass
         {weekDates.map(date => {
           const dayName = dayIndexToName[date.getDay()];
           const classesForDay = schedule[dayName] || [];
+          const holiday = isDateNonWorking(date, nonWorkingDays);
 
           return (
             <div key={date.toISOString()} className="space-y-4">
@@ -160,15 +169,22 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ schedule, students, onClass
                 {dayName} <span className="font-normal text-base text-slate-500">{date.getDate()}</span>
               </h2>
               <div className="space-y-3">
-                {classesForDay.map(classData => (
-                  <ClassSlot
-                    key={classData.id}
-                    classData={classData}
-                    students={students}
-                    date={date}
-                    onClick={() => onClassClick(classData, date.toISOString().split('T')[0])}
-                  />
-                ))}
+                {holiday ? (
+                  <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg text-center">
+                    <p className="font-semibold text-orange-800">No hay clases</p>
+                    <p className="text-sm text-orange-600 mt-1">{holiday.description}</p>
+                  </div>
+                ) : (
+                  classesForDay.map(classData => (
+                    <ClassSlot
+                      key={classData.id}
+                      classData={classData}
+                      students={students}
+                      date={date}
+                      onClick={() => onClassClick(classData, date.toISOString().split('T')[0])}
+                    />
+                  ))
+                )}
               </div>
             </div>
           )

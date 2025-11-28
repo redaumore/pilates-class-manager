@@ -58,3 +58,10 @@ export enum AttendanceStatus {
   CANCELADA_AVISO = 'CANCELADA_AVISO',
   CANCELADA_SIN_AVISO = 'CANCELADA_SIN_AVISO',
 }
+
+export interface NonWorkingDay {
+  id: string;
+  startDate: string; // YYYY-MM-DD
+  endDate: string;   // YYYY-MM-DD
+  description: string;
+}
