@@ -26,7 +26,7 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, size = 
       onClick={onClose}
     >
       <div
-        className={`bg-white rounded-xl shadow-2xl w-full ${sizeClasses[size]} max-w-[95vw] flex flex-col transform transition-all duration-300 scale-95 opacity-0 animate-fade-in-scale`}
+        className={`bg-white rounded-xl shadow-2xl w-full ${sizeClasses[size]} flex flex-col transform transition-all duration-300 scale-95 opacity-0 animate-fade-in-scale`}
         onClick={(e) => e.stopPropagation()}
         style={{ animation: 'fade-in-scale 0.3s forwards' }}
       >
@@ -39,7 +39,7 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, size = 
             <XIcon className="w-5 h-5" />
           </button>
         </div>
-        <div className="p-6 overflow-y-auto max-h-[80vh]">
+        <div className="p-4 sm:p-6 overflow-y-auto max-h-[80vh]">
           {children}
         </div>
       </div>

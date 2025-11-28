@@ -107,10 +107,10 @@ const ClassDetailModal: React.FC<ClassDetailModalProps> = ({ isOpen, onClose, cl
                     const studentLevelNum = LEVEL_HIERARCHY[student.nivel];
                     const isLevelCompatible = classLevelNum === -1 || studentLevelNum >= classLevelNum - 1;
                     return (
-                      <li key={student.id} className="flex items-center justify-between p-2 bg-slate-50 rounded-md">
-                        <div>
-                          <p className="text-slate-800">{student.nombre} {student.apellido}</p>
-                          <p className={`text-sm ${isLevelCompatible ? 'text-slate-500' : 'text-orange-600 font-semibold'}`}>
+                      <li key={student.id} className="flex items-center justify-between p-2 bg-slate-50 rounded-md gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-slate-800 truncate">{student.nombre} {student.apellido}</p>
+                          <p className={`text-sm truncate ${isLevelCompatible ? 'text-slate-500' : 'text-orange-600 font-semibold'}`}>
                             Nivel: {student.nivel} {!isLevelCompatible && "(Advertencia de nivel)"}
                           </p>
                         </div>
