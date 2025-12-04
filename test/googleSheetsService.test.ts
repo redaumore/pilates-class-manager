@@ -10,8 +10,9 @@ import {
     updatePaymentStatus,
     loadPlanCosts,
     savePlanCosts,
+    updateStudent,
 } from '../services/googleSheetsService';
-import { AssignmentType, AttendanceStatus } from '../types';
+import { AssignmentType, AttendanceStatus, Student, Level, Plan } from '../types';
 
 // Mock global gapi and google
 const mockGapi = {
@@ -24,6 +25,7 @@ const mockGapi = {
                     update: vi.fn(),
                     append: vi.fn(),
                     clear: vi.fn(),
+                    batchUpdate: vi.fn(),
                 },
                 get: vi.fn(),
                 batchUpdate: vi.fn(),
@@ -79,6 +81,14 @@ describe('googleSheetsService', () => {
     });
 
     describe('assignStudentToClassRecurring', () => {
+        beforeEach(() => {
+            vi.useFakeTimers();
+            vi.setSystemTime(new Date('2025-11-01T12:00:00Z'));
+        });
+
+        afterEach(() => {
+            vi.useRealTimers();
+        });
         it('should assign a student to a class in 2025 sheet and append to monthly sheet', async () => {
             // Authenticate first
             await signIn();
@@ -627,5 +637,74 @@ describe('googleSheetsService', () => {
     });
 
 
+
+    describe('updateStudent', () => {
+        it('should update student information including recovery classes', async () => {
+            await signIn();
+
+            // Mock existing data
+            mockGapi.client.sheets.spreadsheets.values.get.mockResolvedValueOnce({
+                result: {
+                    values: [
+                        ['ID', 'NOMBRE', 'APELLIDO', 'TELEFONO', 'NIVEL', 'PLAN', 'RECUPERAR'], // Header
+                        ['123', 'MARIA', 'PEREZ', '11223344', 'B', '1', '0'], // Existing student
+                    ],
+                },
+            });
+
+            const studentToUpdate: Student = {
+                id: '123',
+                nombre: 'MARIA',
+                apellido: 'PEREZ',
+                telefono: '54911223344',
+                nivel: Level.Basico,
+                plan: 1 as Plan,
+                clases_recuperacion: 5,
+                fecha_inscripcion: '2025-01-01',
+            };
+
+            await updateStudent(studentToUpdate);
+
+            // Verify batchUpdate call
+            expect(mockGapi.client.sheets.spreadsheets.values.batchUpdate).toHaveBeenCalledWith({
+                spreadsheetId: expect.any(String),
+                resource: {
+                    valueInputOption: 'RAW',
+                    data: expect.arrayContaining([
+                        expect.objectContaining({
+                            range: '2025!G2', // RECUPERAR is at index 6 -> Column G. Row 2.
+                            values: [['5']],
+                        }),
+                    ]),
+                },
+            });
+        });
+
+        it('should throw error if student not found', async () => {
+            await signIn();
+
+            mockGapi.client.sheets.spreadsheets.values.get.mockResolvedValueOnce({
+                result: {
+                    values: [
+                        ['ID', 'NOMBRE'],
+                        ['999', 'JUAN'],
+                    ],
+                },
+            });
+
+            const studentToUpdate: Student = {
+                id: '123',
+                nombre: 'MARIA',
+                apellido: 'PEREZ',
+                telefono: '54911223344',
+                nivel: Level.Basico,
+                plan: 1 as Plan,
+                clases_recuperacion: 5,
+                fecha_inscripcion: '2025-01-01',
+            };
+
+            await expect(updateStudent(studentToUpdate)).rejects.toThrow('No se encontró la alumna con ID 123');
+        });
+    });
 
 });

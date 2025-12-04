@@ -212,7 +212,7 @@ export const loadDataFromSheet = async (): Promise<{
 
     const response = await gapi.client.sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
-      range: `${SHEET_NAME}!A:W`,
+      range: `${SHEET_NAME}!A:Z`,
     });
 
     const rows: string[][] = response.result.values;
@@ -375,7 +375,7 @@ export const updateSheet = async (range: string, values: string[][]) => {
 export const saveStudentToSheet = async (student: Student) => {
   // Lógica para convertir student a filas y actualizar la planilla
   // Por ejemplo, encontrar la fila del estudiante y actualizar
-  const range = `${SHEET_NAME}!A2:W`; // Ajusta según la estructura
+  const range = `${SHEET_NAME}!A2:Z`; // Ajusta según la estructura
   const values = [
     [student.id, student.nombre, student.apellido /* ... otros campos */],
   ];
@@ -551,7 +551,7 @@ export const assignStudentToClassRecurring = async (
     // 1. Update '2025' Sheet (Master Sheet)
     const response = await gapi.client.sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
-      range: `${SHEET_NAME}!A:W`,
+      range: `${SHEET_NAME}!A:Z`,
     });
 
     const rows = response.result.values;
@@ -708,7 +708,7 @@ export const removeStudentFromClassRecurring = async (
     // 1. Update '2025' Sheet (Master Sheet)
     const response = await gapi.client.sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
-      range: `${SHEET_NAME}!A:W`,
+      range: `${SHEET_NAME}!A:Z`,
     });
 
     const rows = response.result.values;
@@ -849,7 +849,7 @@ export const updatePaymentStatus = async (
     // 1. Get data to find row and column
     const response = await gapi.client.sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
-      range: `${SHEET_NAME}!A:W`,
+      range: `${SHEET_NAME}!A:Z`,
     });
 
     const rows = response.result.values;
@@ -1339,7 +1339,7 @@ export const createStudent = async (student: Student): Promise<Student> => {
     // 1. Load existing data to check for duplicates and get max ID
     const response = await gapi.client.sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
-      range: `${SHEET_NAME}!A:W`,
+      range: `${SHEET_NAME}!A:Z`,
     });
 
     const rows = response.result.values;
@@ -1459,7 +1459,7 @@ export const createStudent = async (student: Student): Promise<Student> => {
     // 5. Append the new row to the sheet
     await gapi.client.sheets.spreadsheets.values.append({
       spreadsheetId: SPREADSHEET_ID,
-      range: `${SHEET_NAME}!A:W`,
+      range: `${SHEET_NAME}!A:Z`,
       valueInputOption: 'RAW',
       resource: { values: [newRow] },
     });
@@ -1490,7 +1490,7 @@ export const updateStudent = async (student: Student): Promise<void> => {
     // 1. Load existing data to find the student row
     const response = await gapi.client.sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
-      range: `${SHEET_NAME}!A:W`,
+      range: `${SHEET_NAME}!A:Z`,
     });
 
     const rows = response.result.values;
@@ -1608,7 +1608,7 @@ export const deleteStudent = async (studentId: string): Promise<void> => {
     // 1. Load existing data to find the student row
     const response = await gapi.client.sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
-      range: `${SHEET_NAME}!A:W`,
+      range: `${SHEET_NAME}!A:Z`,
     });
 
     const rows = response.result.values;

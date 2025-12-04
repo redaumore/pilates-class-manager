@@ -150,8 +150,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           <h3 className="text-md font-semibold text-slate-700 mb-3">Agregar Nuevo Periodo</h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
             <div>
-              <label className="block text-sm font-medium text-slate-600 mb-1">Fecha Inicio</label>
+              <label htmlFor="holiday-start-date" className="block text-sm font-medium text-slate-600 mb-1">Fecha Inicio</label>
               <input
+                id="holiday-start-date"
                 type="date"
                 required
                 value={newHoliday.startDate}
@@ -160,8 +161,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-600 mb-1">Fecha Fin (Opcional)</label>
+              <label htmlFor="holiday-end-date" className="block text-sm font-medium text-slate-600 mb-1">Fecha Fin (Opcional)</label>
               <input
+                id="holiday-end-date"
                 type="date"
                 value={newHoliday.endDate}
                 onChange={e => setNewHoliday({ ...newHoliday, endDate: e.target.value })}
@@ -171,8 +173,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-600 mb-1">Descripción</label>
+              <label htmlFor="holiday-description" className="block text-sm font-medium text-slate-600 mb-1">Descripción</label>
               <input
+                id="holiday-description"
                 type="text"
                 required
                 value={newHoliday.description}

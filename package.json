@@ -1,7 +1,7 @@
 {
   "name": "pilates-class-manager",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -22,6 +22,7 @@
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
     "gh-pages": "^6.3.0",
+    "happy-dom": "^20.0.11",
     "jsdom": "^27.0.1",
     "typescript": "~5.8.2",
     "vite": "^6.2.0",

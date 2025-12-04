@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import SettingsPage from './SettingsPage';
 import { PlanCosts, NonWorkingDay } from '../types';
@@ -23,8 +23,17 @@ describe('SettingsPage', () => {
     const mockOnAddNonWorkingDay = vi.fn();
     const mockOnDeleteNonWorkingDay = vi.fn();
 
+    let confirmSpy: any;
+
     beforeEach(() => {
         vi.clearAllMocks();
+        // Mock window.confirm globally
+        confirmSpy = vi.fn(() => true);
+        global.window.confirm = confirmSpy;
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
     });
 
     it('renders plan costs correctly', () => {
@@ -80,8 +89,9 @@ describe('SettingsPage', () => {
         );
 
         expect(screen.getByText('Navidad')).toBeInTheDocument();
-        // Check for formatted dates (assuming locale might vary, checking parts)
-        expect(screen.getByText(/25\/12\/2025/)).toBeInTheDocument();
+        // Check for dates containing 25 and 2025 (there are two: start and end date)
+        const dates = screen.getAllByText(/25.*2025|2025.*25/);
+        expect(dates.length).toBeGreaterThan(0);
     });
 
     it('adds a new non-working day', async () => {
@@ -115,9 +125,6 @@ describe('SettingsPage', () => {
     });
 
     it('deletes a non-working day', async () => {
-        // Mock window.confirm
-        vi.spyOn(window, 'confirm').mockImplementation(() => true);
-
         render(
             <SettingsPage
                 planCosts={mockPlanCosts}
@@ -128,14 +135,7 @@ describe('SettingsPage', () => {
             />
         );
 
-        const deleteButton = screen.getByRole('button', { name: '' }); // Trash icon button might not have text, let's look for the icon or button in the row
-        // Actually, the button has the TrashIcon. Let's find it by the row content or just the first delete button since there is one item.
-        const deleteButtons = screen.getAllByRole('button');
-        // The delete button is in the table.
-        // Let's use a more specific selector if possible, or just find the one in the row.
-        // In the component: <button onClick={() => handleDeleteHoliday(day.id)} ...> <TrashIcon /> </button>
-        // We can find it by looking for the row with "Navidad" and then the button inside it.
-
+        // Find the delete button in the row with "Navidad"
         const row = screen.getByText('Navidad').closest('tr');
         const deleteBtn = row?.querySelector('button');
 
@@ -143,6 +143,9 @@ describe('SettingsPage', () => {
         if (deleteBtn) {
             fireEvent.click(deleteBtn);
         }
+
+        // Verify confirm was called
+        expect(confirmSpy).toHaveBeenCalled();
 
         await waitFor(() => {
             expect(mockOnDeleteNonWorkingDay).toHaveBeenCalledWith('1');
