@@ -79,7 +79,7 @@ const StudentFormModal: React.FC<StudentFormModalProps> = ({ isOpen, onClose, on
         </div>
         <div>
           <label htmlFor="apellido" className="block text-sm font-medium text-slate-700">Apellido</label>
-          <input type="text" name="apellido" id="apellido" value={formData.apellido} onChange={handleChange} required className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
+          <input type="text" name="apellido" id="apellido" value={formData.apellido} onChange={handleChange} required={!studentToEdit} className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
         </div>
         <div>
           <label htmlFor="telefono" className="block text-sm font-medium text-slate-700">Teléfono</label>
