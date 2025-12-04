@@ -1,13 +1,14 @@
 {
   "name": "pilates-class-manager",
   "private": true,
-  "version": "0.1.1",
+  "version": "1.25",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest",
+    "version:sync": "node -e \"const {execSync} = require('child_process'); const count = execSync('git rev-list --count HEAD').toString().trim(); const fs = require('fs'); const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')); pkg.version = '1.' + count; fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\\n'); console.log('Version synced to', pkg.version);\"",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist"
   },
