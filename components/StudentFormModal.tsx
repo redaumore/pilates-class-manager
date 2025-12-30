@@ -100,6 +100,11 @@ const StudentFormModal: React.FC<StudentFormModalProps> = ({ isOpen, onClose, on
             <option value={2}>2</option>
             <option value={3}>3</option>
           </select>
+          {studentToEdit && formData.plan !== studentToEdit.plan && (
+            <p className="mt-2 text-sm text-amber-600 bg-amber-50 p-2 rounded-md border border-amber-200">
+              ⚠️ Al cambiar el plan, se eliminarán todas las clases asignadas a partir de hoy. Deberás asignar las nuevas clases manualmente.
+            </p>
+          )}
         </div>
         <div>
           <label htmlFor="clases_recuperacion" className="block text-sm font-medium text-slate-700">Clases de Recuperación</label>

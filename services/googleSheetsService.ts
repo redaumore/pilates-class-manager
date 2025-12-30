@@ -1800,3 +1800,113 @@ export const deleteNonWorkingDay = async (id: string): Promise<void> => {
     throw new Error('Error al eliminar día no laborable: ' + (err.message || 'Error desconocido'));
   }
 };
+
+export const removeStudentFromAllFutureClasses = async (studentId: string) => {
+  try {
+    if (!accessToken) throw new Error('Usuario no autenticado');
+    gapi.client.setToken({ access_token: accessToken });
+
+    // 1. Clear CLASE 1, CLASE 2, CLASE 3 in '2025' sheet
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${SHEET_NAME}!A:Z`,
+    });
+    const rows = response.result.values;
+    if (!rows || rows.length < 2) throw new Error('No se encontraron datos en la hoja de alumnos');
+
+    const header = rows[0].map((h: string) => h.trim());
+    const idIndex = header.indexOf('ID');
+    const clase1Index = header.indexOf('CLASE 1');
+    const clase2Index = header.indexOf('CLASE 2');
+    const clase3Index = header.indexOf('CLASE 3');
+
+    let rowIndex = -1;
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][idIndex] === studentId) {
+        rowIndex = i + 1;
+        break;
+      }
+    }
+
+    // Helper to get column letter
+    const getColumnLetter = (index: number) => {
+      let letter = '';
+      while (index >= 0) {
+        letter = String.fromCharCode((index % 26) + 65) + letter;
+        index = Math.floor(index / 26) - 1;
+      }
+      return letter;
+    };
+
+    if (rowIndex !== -1) {
+      const updates = [];
+
+      if (clase1Index !== -1) updates.push({ range: `${SHEET_NAME}!${getColumnLetter(clase1Index)}${rowIndex}`, values: [['']] });
+      if (clase2Index !== -1) updates.push({ range: `${SHEET_NAME}!${getColumnLetter(clase2Index)}${rowIndex}`, values: [['']] });
+      if (clase3Index !== -1) updates.push({ range: `${SHEET_NAME}!${getColumnLetter(clase3Index)}${rowIndex}`, values: [['']] });
+
+      if (updates.length > 0) {
+        await gapi.client.sheets.spreadsheets.values.batchUpdate({
+          spreadsheetId: SPREADSHEET_ID,
+          resource: { valueInputOption: 'RAW', data: updates }
+        });
+      }
+    }
+
+    // 2. Remove future bookings from monthly sheet
+    const today = new Date();
+    const monthYear = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+
+    // Check if sheet exists
+    const spreadsheet = await gapi.client.sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
+    const sheetExists = spreadsheet.result.sheets.some((s: any) => s.properties.title === monthYear);
+
+    if (sheetExists) {
+      const monthlyResponse = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `${monthYear}!A:G`,
+      });
+      const monthlyRows = monthlyResponse.result.values;
+      if (monthlyRows && monthlyRows.length > 1) {
+        const mHeader = monthlyRows[0];
+        const fechaIndex = mHeader.indexOf('FECHA');
+        const alumnaIdIndex = mHeader.indexOf('ALUMNA_ID');
+        const tipoIndex = mHeader.indexOf('TIPO_ASIGNACION');
+
+        const todayISO = today.toISOString().split('T')[0];
+
+        const newRows = monthlyRows.filter((row: string[], index: number) => {
+          if (index === 0) return true;
+          const rowDate = row[fechaIndex];
+          const rowStudentId = row[alumnaIdIndex];
+          const rowTipo = row[tipoIndex];
+
+          // Remove if student matches, is recurring (FIJA), and date is today or future
+          if (rowStudentId === studentId && rowTipo === AssignmentType.FIJA && rowDate >= todayISO) {
+            return false; // Remove
+          }
+          return true;
+        });
+
+        if (newRows.length < monthlyRows.length) {
+          await gapi.client.sheets.spreadsheets.values.clear({
+            spreadsheetId: SPREADSHEET_ID,
+            range: `${monthYear}!A:G`,
+          });
+          await gapi.client.sheets.spreadsheets.values.update({
+            spreadsheetId: SPREADSHEET_ID,
+            range: `${monthYear}!A1`,
+            valueInputOption: 'RAW',
+            resource: { values: newRows },
+          });
+        }
+      }
+    }
+
+    console.log(`Eliminadas clases futuras para alumna ${studentId} por cambio de plan`);
+
+  } catch (err: any) {
+    console.error('Error removing future classes:', err);
+    throw new Error('Error al eliminar clases futuras: ' + (err.message || 'Error desconocido'));
+  }
+};

@@ -21,7 +21,8 @@ import {
     deleteStudent,
     loadNonWorkingDays,
     addNonWorkingDay,
-    deleteNonWorkingDay
+    deleteNonWorkingDay,
+    removeStudentFromAllFutureClasses
 } from './services/googleSheetsService';
 
 import Header from './components/Header';
@@ -179,6 +180,24 @@ const App: React.FC = () => {
                 const createdStudent = await createStudent(studentData);
                 setStudents(prev => [...prev, createdStudent]);
             } else {
+                // Check if plan changed
+                const originalStudent = students.find(s => s.id === studentData.id);
+                if (originalStudent && originalStudent.plan !== studentData.plan) {
+                    await removeStudentFromAllFutureClasses(studentData.id);
+
+                    // Update local schedule state to reflect removal
+                    setSchedule(prevSchedule => {
+                        const newSchedule = JSON.parse(JSON.stringify(prevSchedule));
+                        for (const day in newSchedule) {
+                            newSchedule[day] = newSchedule[day].map((c: Class) => ({
+                                ...c,
+                                bookings: c.bookings.filter(b => b.studentId !== studentData.id)
+                            }));
+                        }
+                        return newSchedule;
+                    });
+                }
+
                 // Update existing student in Google Sheets
                 await updateStudent(studentData);
                 setStudents(prev => {
