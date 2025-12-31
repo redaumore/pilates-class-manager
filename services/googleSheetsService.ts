@@ -11,19 +11,38 @@ import {
 } from '../types';
 import { generateInitialSchedule, DAY_CODE_MAP, DAY_NAME_TO_CODE } from '../constants';
 
-// Declarar gapi y google globalmente
-declare const gapi: any;
-declare const google: any;
+// Email del usuario actual para la identificación en el backend
+let currentUserEmail: string | null = null;
 
-const SPREADSHEET_ID = '1onA2BHky-848DFSbaeTa_Qw-r8ZwpZ9nJteIn8-d1cc';
-const SHEET_NAME = '2025';
-const CONFIG_SHEET_NAME = '2025-config';
-const HOLIDAYS_SHEET_NAME = '2025-feriados';
-const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
+export const setUserEmail = (email: string | null) => {
+  currentUserEmail = email;
+};
 
-// Variable para almacenar el token de acceso
-let accessToken: string | null = null;
+// Helper para llamar al backend
+const callRpc = async (action: string, payload: any = {}) => {
+  if (!currentUserEmail) {
+    console.warn("Llamada a RPC sin usuario configurado");
+  }
+
+  const response = await fetch('/api/rpc', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      action,
+      payload,
+      userEmail: currentUserEmail
+    }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.error || `Error en RPC ${action}: ${response.statusText}`);
+  }
+
+  return response.json();
+};
 
 const LEVEL_MAP: Record<string, Level> = {
   B: Level.Basico,
@@ -88,134 +107,21 @@ const formatDate = (dateStr: string): string => {
     .padStart(2, '0')}-${date.getFullYear()}`;
 };
 
-// Verificar que gapi esté cargado
-const waitForGapi = (): Promise<void> => {
-  return new Promise((resolve, reject) => {
-    const maxAttempts = 50;
-    let attempts = 0;
 
-    const checkGapi = () => {
-      attempts++;
-      if (typeof gapi !== 'undefined') {
-        resolve();
-      } else if (attempts >= maxAttempts) {
-        reject(
-          new Error(
-            'gapi no se cargó correctamente. Verifica tu conexión a internet.'
-          )
-        );
-      } else {
-        setTimeout(checkGapi, 100);
-      }
-    };
+// Constants (redifine spreadsheet constants if needed, but ID is now in backend)
+const SHEET_NAME = '2025';
+const CONFIG_SHEET_NAME = '2025-config';
+const HOLIDAYS_SHEET_NAME = '2025-feriados';
 
-    checkGapi();
-  });
-};
-
-// Verificar que Google Identity Services esté cargado
-const waitForGIS = (): Promise<void> => {
-  return new Promise((resolve, reject) => {
-    const maxAttempts = 50;
-    let attempts = 0;
-
-    const checkGIS = () => {
-      attempts++;
-      if (typeof google !== 'undefined' && google.accounts) {
-        resolve();
-      } else if (attempts >= maxAttempts) {
-        reject(
-          new Error('Google Identity Services no se cargó correctamente.')
-        );
-      } else {
-        setTimeout(checkGIS, 100);
-      }
-    };
-
-    checkGIS();
-  });
-};
-
-// Inicializar gapi client (solo para API calls, no auth)
-export const initGapi = async (): Promise<void> => {
-  await waitForGapi();
-
-  return new Promise<void>((resolve, reject) => {
-    gapi.load('client', async () => {
-      try {
-        await gapi.client.init({
-          discoveryDocs: [
-            'https://sheets.googleapis.com/$discovery/rest?version=v4',
-          ],
-        });
-
-        console.log('gapi.client inicializado correctamente');
-        resolve();
-      } catch (err: any) {
-        console.error('Error al inicializar gapi.client:', err);
-        reject(
-          new Error(
-            'Error al inicializar Google API: ' + (err.details || err.message)
-          )
-        );
-      }
-    });
-  });
-};
-
-// Inicializar Google Identity Services para autenticación
-export const initGIS = async (): Promise<void> => {
-  await waitForGIS();
-  console.log('Google Identity Services cargado correctamente');
-};
-
-// Función para autenticar usando Google Identity Services
-export const signIn = async (): Promise<void> => {
-  return new Promise<void>((resolve, reject) => {
-    try {
-      const client = google.accounts.oauth2.initTokenClient({
-        client_id: CLIENT_ID,
-        scope: SCOPES,
-        callback: (response: any) => {
-          if (response.error) {
-            reject(new Error('Error al autenticar: ' + response.error));
-            return;
-          }
-          accessToken = response.access_token;
-          console.log('Autenticación exitosa');
-          resolve();
-        },
-      });
-
-      client.requestAccessToken();
-    } catch (err: any) {
-      console.error('Error al iniciar sesión:', err);
-      reject(new Error('Error al iniciar sesión: ' + err.message));
-    }
-  });
-};
-
-// Función para verificar si está autenticado
-export const isSignedIn = (): boolean => {
-  return accessToken !== null;
-};
-
-// Función para leer datos con el token de acceso
+// Función para leer datos usando el backend
 export const loadDataFromSheet = async (): Promise<{
   students: Student[];
   schedule: Schedule;
   payments: PaymentRecord;
 }> => {
   try {
-    // Configurar el token de acceso para las llamadas a la API
-    gapi.client.setToken({ access_token: accessToken });
-
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${SHEET_NAME}!A:Z`,
-    });
-
-    const rows: string[][] = response.result.values;
+    const response = await callRpc('loadDataFromSheet');
+    const rows: string[][] = response.values;
 
     if (!rows || rows.length < 2) {
       return {
@@ -297,12 +203,10 @@ export const loadDataFromSheet = async (): Promise<{
     ).padStart(2, '0')}`;
 
     try {
-      const monthlyResponse = await gapi.client.sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: `${monthYear}!A:G`,
-      });
+      const monthlyResponse = await callRpc('getSheetValues', { range: `${monthYear}!A:G` });
 
-      const monthlyRows = monthlyResponse.result.values;
+      const monthlyRows = monthlyResponse.values;
+
       if (monthlyRows && monthlyRows.length > 1) {
         const mHeader = monthlyRows[0];
         const mHeaderMap = mHeader.reduce((acc: any, col: string, i: number) => {
@@ -361,14 +265,9 @@ export const loadDataFromSheet = async (): Promise<{
 };
 
 // Función para guardar datos (ejemplo para actualizar una celda)
+// Función para guardar datos usando el backend
 export const updateSheet = async (range: string, values: string[][]) => {
-  await gapi.client.load('sheets', 'v4');
-  await gapi.client.sheets.spreadsheets.values.update({
-    spreadsheetId: SPREADSHEET_ID,
-    range: range,
-    valueInputOption: 'RAW',
-    resource: { values },
-  });
+  await callRpc('updateSheet', { range, values });
 };
 
 // Ejemplo de función para guardar un estudiante (adapta según necesidades)
@@ -389,46 +288,21 @@ export const updateMonthlySheet = async (
   monthYear: string
 ) => {
   try {
-    // Ensure authenticated
-    if (!accessToken) {
-      throw new Error('Usuario no autenticado');
-    }
-    gapi.client.setToken({ access_token: accessToken });
-
     // Check if the sheet exists
-    const spreadsheet = await gapi.client.sheets.spreadsheets.get({
-      spreadsheetId: SPREADSHEET_ID,
-    });
-    const sheetExists = spreadsheet.result.sheets.some(
+    const meta = await callRpc('getSpreadsheetMeta');
+    const sheetExists = meta.sheets.some(
       (sheet: any) => sheet.properties.title === monthYear
     );
 
     if (!sheetExists) {
       // Create the sheet
-      await gapi.client.sheets.spreadsheets.batchUpdate({
-        spreadsheetId: SPREADSHEET_ID,
-        resource: {
-          requests: [
-            {
-              addSheet: {
-                properties: {
-                  title: monthYear,
-                },
-              },
-            },
-          ],
-        },
-      });
+      await callRpc('createSheet', { title: monthYear });
     }
 
     // Check if the sheet has data (more than just headers)
-    const checkRange = `${monthYear}!A:A`;
-    const checkResponse = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: checkRange,
-    });
+    const checkResponse = await callRpc('getSheetValues', { range: `${monthYear}!A:A` });
     const hasData =
-      checkResponse.result.values && checkResponse.result.values.length > 1;
+      checkResponse.values && checkResponse.values.length > 1;
 
     // If the sheet already has records, do not update it
     if (hasData) {
@@ -469,12 +343,10 @@ export const updateMonthlySheet = async (
               .map((b) => b.studentId)
           );
 
-          // Note: We are initializing, so we assume no one-time bookings or absences exist yet for this month in the schedule object
-          // unless they were pre-loaded. We'll handle them if they exist.
-
+          // Note: We are initializing so we assume no one-time bookings or absences exist yet
           const oneTimeStudentIds = new Set(
             (classData.oneTimeBookings ?? [])
-              .filter((b) => b.date === dateStringISO) // Assuming oneTimeBookings use YYYY-MM-DD
+              .filter((b) => b.date === dateStringISO)
               .map((b) => b.studentId)
           );
 
@@ -482,9 +354,7 @@ export const updateMonthlySheet = async (
 
           // For permanent students
           for (const studentId of permanentStudentIds) {
-            // Check if absent (cancelled)
             const isAbsent = (classData.absences ?? []).some(a => a.studentId === studentId && a.date === dateStringISO);
-
             const estado = isAbsent ? AttendanceStatus.CANCELADA_AVISO : AttendanceStatus.PROGRAMADA;
 
             data.push([
@@ -498,7 +368,7 @@ export const updateMonthlySheet = async (
             ]);
           }
 
-          // For one-time students (Recoveries)
+          // For one-time students
           for (const studentId of oneTimeStudentIds) {
             data.push([
               dateStringISO,
@@ -515,19 +385,8 @@ export const updateMonthlySheet = async (
     }
 
     // Clear the sheet and write new data
-    const clearRange = `${monthYear}!A:Z`;
-    await gapi.client.sheets.spreadsheets.values.clear({
-      spreadsheetId: SPREADSHEET_ID,
-      range: clearRange,
-    });
-
-    const range = `${monthYear}!A1:G${data.length}`;
-    await gapi.client.sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
-      range: range,
-      valueInputOption: 'RAW',
-      resource: { values: data },
-    });
+    await callRpc('clearSheet', { range: `${monthYear}!A:Z` });
+    await callRpc('updateSheet', { range: `${monthYear}!A1`, values: data });
 
     console.log(`Hoja ${monthYear} inicializada correctamente`);
   } catch (err: any) {
@@ -545,16 +404,10 @@ export const assignStudentToClassRecurring = async (
   monthYear: string
 ) => {
   try {
-    if (!accessToken) throw new Error('Usuario no autenticado');
-    gapi.client.setToken({ access_token: accessToken });
-
     // 1. Update '2025' Sheet (Master Sheet)
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${SHEET_NAME}!A:Z`,
-    });
+    const response = await callRpc('loadDataFromSheet'); // Reuse load logic or specific getValues
 
-    const rows = response.result.values;
+    const rows = response.values;
     if (!rows || rows.length < 2)
       throw new Error('No se encontraron datos en la hoja de alumnos');
 
@@ -564,8 +417,6 @@ export const assignStudentToClassRecurring = async (
     const clase2Index = header.indexOf('CLASE 2');
     const clase3Index = header.indexOf('CLASE 3');
     const planIndex = header.indexOf('PLAN');
-    const nombreIndex = header.indexOf('NOMBRE');
-    const apellidoIndex = header.indexOf('APELLIDO');
 
     if (idIndex === -1 || clase1Index === -1 || planIndex === -1)
       throw new Error('No se encontraron las columnas necesarias');
@@ -613,12 +464,7 @@ export const assignStudentToClassRecurring = async (
     const colLetter = getColumnLetter(targetColIndex);
     const range = `${SHEET_NAME}!${colLetter}${rowIndex}`;
 
-    await gapi.client.sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
-      range: range,
-      valueInputOption: 'RAW',
-      resource: { values: [[classId]] },
-    });
+    await callRpc('updateSheet', { range, values: [[classId]] });
 
     // 2. Update Monthly Sheet (e.g., '2025-11')
     // Calculate dates for the rest of the month for this class day
@@ -645,10 +491,8 @@ export const assignStudentToClassRecurring = async (
     });
 
     // Check if the monthly sheet exists before trying to append
-    const spreadsheet = await gapi.client.sheets.spreadsheets.get({
-      spreadsheetId: SPREADSHEET_ID,
-    });
-    const sheetExists = spreadsheet.result.sheets.some(
+    const meta = await callRpc('getSpreadsheetMeta');
+    const sheetExists = meta.sheets.some(
       (sheet: any) => sheet.properties.title === monthYear
     );
 
@@ -680,12 +524,7 @@ export const assignStudentToClassRecurring = async (
       }
 
       if (newRows.length > 0) {
-        await gapi.client.sheets.spreadsheets.values.append({
-          spreadsheetId: SPREADSHEET_ID,
-          range: `${monthYear}!A:G`,
-          valueInputOption: 'RAW',
-          resource: { values: newRows },
-        });
+        await callRpc('appendSheet', { range: `${monthYear}!A:G`, values: newRows });
       }
     }
 
@@ -702,16 +541,10 @@ export const removeStudentFromClassRecurring = async (
   monthYear: string
 ) => {
   try {
-    if (!accessToken) throw new Error('Usuario no autenticado');
-    gapi.client.setToken({ access_token: accessToken });
-
     // 1. Update '2025' Sheet (Master Sheet)
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${SHEET_NAME}!A:Z`,
-    });
+    const response = await callRpc('loadDataFromSheet');
 
-    const rows = response.result.values;
+    const rows = response.values;
     if (!rows || rows.length < 2)
       throw new Error('No se encontraron datos en la hoja de alumnos');
 
@@ -757,29 +590,19 @@ export const removeStudentFromClassRecurring = async (
     const colLetter = getColumnLetter(targetColIndex);
     const range = `${SHEET_NAME}!${colLetter}${rowIndex}`;
 
-    await gapi.client.sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
-      range: range,
-      valueInputOption: 'RAW',
-      resource: { values: [['']] }, // Clear value
-    });
+    await callRpc('updateSheet', { range, values: [['']] });
 
     // 2. Update Monthly Sheet (e.g., '2025-11')
     // Remove future occurrences
-    const spreadsheet = await gapi.client.sheets.spreadsheets.get({
-      spreadsheetId: SPREADSHEET_ID,
-    });
-    const sheetExists = spreadsheet.result.sheets.some(
+    const meta = await callRpc('getSpreadsheetMeta');
+    const sheetExists = meta.sheets.some(
       (sheet: any) => sheet.properties.title === monthYear
     );
 
     if (sheetExists) {
-      const monthlyResponse = await gapi.client.sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: `${monthYear}!A:G`,
-      });
+      const monthlyResponse = await callRpc('getSheetValues', { range: `${monthYear}!A:G` });
 
-      const monthlyRows = monthlyResponse.result.values;
+      const monthlyRows = monthlyResponse.values;
       if (monthlyRows && monthlyRows.length > 1) {
         const header = monthlyRows[0];
         const fechaIndex = header.indexOf('FECHA');
@@ -811,19 +634,15 @@ export const removeStudentFromClassRecurring = async (
           });
 
           // Write back if changes were made
+          // Write back if changes were made
           if (newRows.length < monthlyRows.length) {
             // Clear the sheet first
-            await gapi.client.sheets.spreadsheets.values.clear({
-              spreadsheetId: SPREADSHEET_ID,
-              range: `${monthYear}!A:G`,
-            });
+            await callRpc('clearSheet', { range: `${monthYear}!A:G` });
 
             // Write new rows
-            await gapi.client.sheets.spreadsheets.values.update({
-              spreadsheetId: SPREADSHEET_ID,
-              range: `${monthYear}!A1:G${newRows.length}`,
-              valueInputOption: 'RAW',
-              resource: { values: newRows },
+            await callRpc('updateSheet', {
+              range: `${monthYear}!A1`,
+              values: newRows
             });
           }
         }
@@ -843,16 +662,10 @@ export const updatePaymentStatus = async (
   paymentDate: string
 ) => {
   try {
-    if (!accessToken) throw new Error('Usuario no autenticado');
-    gapi.client.setToken({ access_token: accessToken });
-
     // 1. Get data to find row and column
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${SHEET_NAME}!A:Z`,
-    });
+    const response = await callRpc('loadDataFromSheet');
 
-    const rows = response.result.values;
+    const rows = response.values;
     if (!rows || rows.length < 2)
       throw new Error('No se encontraron datos en la hoja de alumnos');
 
@@ -903,12 +716,7 @@ export const updatePaymentStatus = async (
       valueToSave = `${day}-${month}-${year}`;
     }
 
-    await gapi.client.sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
-      range: range,
-      valueInputOption: 'RAW',
-      resource: { values: [[valueToSave]] },
-    });
+    await callRpc('updateSheet', { range, values: [[valueToSave]] });
 
     console.log(`Pago actualizado para ${studentId} en ${monthYear}: ${valueToSave}`);
 
@@ -926,19 +734,13 @@ export const registerStudentAbsence = async (
   withMakeup: boolean
 ) => {
   try {
-    if (!accessToken) await signIn();
-    gapi.client.setToken({ access_token: accessToken });
-
     const monthYear = date.substring(0, 7); // YYYY-MM
     const sheetName = monthYear;
 
     // 1. Find the row in the monthly sheet
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${sheetName}!A:G`,
-    });
+    const response = await callRpc('getSheetValues', { range: `${sheetName}!A:G` });
 
-    const rows = response.result.values;
+    const rows = response.values;
     if (!rows || rows.length === 0) {
       throw new Error(`No se encontraron datos en la hoja ${sheetName}`);
     }
@@ -996,23 +798,16 @@ export const registerStudentAbsence = async (
 
     const estadoColLetter = getColumnLetter(estadoIndex);
 
-    await gapi.client.sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
+    await callRpc('updateSheet', {
       range: `${sheetName}!${estadoColLetter}${rowIndex}`,
-      valueInputOption: 'RAW',
-      resource: {
-        values: [[newStatus]],
-      },
+      values: [[newStatus]]
     });
 
     // 3. If withMakeup, update '2025' sheet
     if (withMakeup) {
-      const mainSheetResponse = await gapi.client.sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: `${SHEET_NAME}!A:Z`,
-      });
+      const mainSheetResponse = await callRpc('loadDataFromSheet');
 
-      const mainRows = mainSheetResponse.result.values;
+      const mainRows = mainSheetResponse.values;
       const mainHeader = mainRows[0];
       const idIndex = mainHeader.indexOf('ID');
       const recuperarIndex = mainHeader.indexOf('RECUPERAR');
@@ -1027,11 +822,9 @@ export const registerStudentAbsence = async (
             const newRecupero = currentRecupero + 1;
             const recuperarColLetter = getColumnLetter(recuperarIndex);
 
-            await gapi.client.sheets.spreadsheets.values.update({
-              spreadsheetId: SPREADSHEET_ID,
+            await callRpc('updateSheet', {
               range: `${SHEET_NAME}!${recuperarColLetter}${i + 1}`,
-              valueInputOption: 'RAW',
-              resource: { values: [[newRecupero]] },
+              values: [[newRecupero]]
             });
             break;
           }
@@ -1050,16 +843,10 @@ export const assignStudentToClassSingleDay = async (
   date: string
 ) => {
   try {
-    if (!accessToken) await signIn();
-    gapi.client.setToken({ access_token: accessToken });
-
     // 1. Decrement RECUPERAR in '2025' sheet
-    const mainSheetResponse = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${SHEET_NAME}!A:Z`,
-    });
+    const mainSheetResponse = await callRpc('loadDataFromSheet');
 
-    const mainRows = mainSheetResponse.result.values;
+    const mainRows = mainSheetResponse.values;
     const mainHeader = mainRows[0].map((col: string) => col.trim());
     const idIndex = mainHeader.indexOf('ID');
     const recuperarIndex = mainHeader.indexOf('RECUPERAR');
@@ -1095,69 +882,40 @@ export const assignStudentToClassSingleDay = async (
     };
 
     const recuperarColLetter = getColumnLetter(recuperarIndex);
-    await gapi.client.sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
+    await callRpc('updateSheet', {
       range: `${SHEET_NAME}!${recuperarColLetter}${studentRowIndex}`,
-      valueInputOption: 'RAW',
-      resource: { values: [[currentRecupero - 1]] },
+      values: [[currentRecupero - 1]]
     });
 
     // 2. Add to Monthly Sheet
     const monthYear = date.substring(0, 7); // YYYY-MM
     const sheetName = monthYear;
 
-    // Check if sheet exists, if not create it (reuse logic or assume it exists/created by other flows? 
-    // Ideally we should check. For now assuming it exists or handled like in other functions)
-    // Actually, updateMonthlySheet handles creation. Let's try to append directly or check.
-    // For simplicity and consistency with other functions, let's check/create.
-
-    const spreadsheet = await gapi.client.sheets.spreadsheets.get({
-      spreadsheetId: SPREADSHEET_ID,
-    });
-
-    let sheetExists = spreadsheet.result.sheets.some(
+    const meta = await callRpc('getSpreadsheetMeta');
+    let sheetExists = meta.sheets.some(
       (sheet: any) => sheet.properties.title === sheetName
     );
 
     if (!sheetExists) {
-      await gapi.client.sheets.spreadsheets.batchUpdate({
-        spreadsheetId: SPREADSHEET_ID,
-        resource: {
-          requests: [
-            {
-              addSheet: {
-                properties: { title: sheetName },
-              },
-            },
-          ],
-        },
-      });
+      await callRpc('createSheet', { title: sheetName });
       // Add header
-      await gapi.client.sheets.spreadsheets.values.update({
-        spreadsheetId: SPREADSHEET_ID,
+      await callRpc('updateSheet', {
         range: `${sheetName}!A1`,
-        valueInputOption: 'RAW',
-        resource: {
-          values: [['FECHA', 'CLASE_ID', 'ALUMNA_ID', 'TIPO_ASIGNACION', 'ESTADO']],
-        },
+        values: [['FECHA', 'CLASE_ID', 'ALUMNA_ID', 'TIPO_ASIGNACION', 'ESTADO']],
       });
     }
 
-    await gapi.client.sheets.spreadsheets.values.append({
-      spreadsheetId: SPREADSHEET_ID,
+    await callRpc('appendSheet', {
       range: `${sheetName}!A:E`,
-      valueInputOption: 'RAW',
-      resource: {
-        values: [
-          [
-            date,
-            classId,
-            studentId,
-            AssignmentType.RECUPERO,
-            AttendanceStatus.PROGRAMADA,
-          ],
+      values: [
+        [
+          date,
+          classId,
+          studentId,
+          AssignmentType.RECUPERO,
+          AttendanceStatus.PROGRAMADA,
         ],
-      },
+      ],
     });
 
   } catch (err: any) {
@@ -1168,15 +926,10 @@ export const assignStudentToClassSingleDay = async (
 
 export const loadPlanCosts = async (): Promise<PlanCosts | null> => {
   try {
-    if (!accessToken) return null;
-    gapi.client.setToken({ access_token: accessToken });
-
     // Check if config sheet exists
-    const spreadsheet = await gapi.client.sheets.spreadsheets.get({
-      spreadsheetId: SPREADSHEET_ID,
-    });
+    const meta = await callRpc('getSpreadsheetMeta');
 
-    const sheetExists = spreadsheet.result.sheets.some(
+    const sheetExists = meta.sheets.some(
       (sheet: any) => sheet.properties.title === CONFIG_SHEET_NAME
     );
 
@@ -1184,12 +937,9 @@ export const loadPlanCosts = async (): Promise<PlanCosts | null> => {
       return null; // Return null to use defaults
     }
 
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${CONFIG_SHEET_NAME}!A:D`,
-    });
+    const response = await callRpc('getSheetValues', { range: `${CONFIG_SHEET_NAME}!A:D` });
 
-    const rows = response.result.values;
+    const rows = response.values;
     if (!rows || rows.length < 2) return null;
 
     const header = rows[0].map((h: string) => h.trim());
@@ -1224,48 +974,26 @@ export const loadPlanCosts = async (): Promise<PlanCosts | null> => {
 
 export const savePlanCosts = async (newCosts: PlanCosts) => {
   try {
-    if (!accessToken) throw new Error('Usuario no autenticado');
-    gapi.client.setToken({ access_token: accessToken });
-
     // 1. Ensure sheet exists
-    const spreadsheet = await gapi.client.sheets.spreadsheets.get({
-      spreadsheetId: SPREADSHEET_ID,
-    });
+    const meta = await callRpc('getSpreadsheetMeta');
 
-    let sheetExists = spreadsheet.result.sheets.some(
+    let sheetExists = meta.sheets.some(
       (sheet: any) => sheet.properties.title === CONFIG_SHEET_NAME
     );
 
     if (!sheetExists) {
-      await gapi.client.sheets.spreadsheets.batchUpdate({
-        spreadsheetId: SPREADSHEET_ID,
-        resource: {
-          requests: [{
-            addSheet: {
-              properties: { title: CONFIG_SHEET_NAME }
-            }
-          }]
-        }
-      });
-
+      await callRpc('createSheet', { title: CONFIG_SHEET_NAME });
       // Add header
-      await gapi.client.sheets.spreadsheets.values.update({
-        spreadsheetId: SPREADSHEET_ID,
+      await callRpc('updateSheet', {
         range: `${CONFIG_SHEET_NAME}!A1`,
-        valueInputOption: 'RAW',
-        resource: {
-          values: [['Plan', 'Cuota', 'Estado', 'Modificado']]
-        }
+        values: [['Plan', 'Cuota', 'Estado', 'Modificado']]
       });
     }
 
     // 2. Mark current "Vigente" as "Inactivo"
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${CONFIG_SHEET_NAME}!A:D`,
-    });
+    const response = await callRpc('getSheetValues', { range: `${CONFIG_SHEET_NAME}!A:D` });
 
-    const rows = response.result.values;
+    const rows = response.values;
     if (rows && rows.length > 1) {
       const header = rows[0].map((h: string) => h.trim());
       const estadoIndex = header.indexOf('Estado');
@@ -1285,16 +1013,9 @@ export const savePlanCosts = async (newCosts: PlanCosts) => {
           }
         }
 
-        // Execute updates (sequentially or batch if we constructed a batch request, 
-        // but values.batchUpdate is better for multiple ranges, though simple loop is fine for low volume)
-        // Let's use loop for simplicity as volume is low (3 plans)
+        // Execute updates
         for (const update of updates) {
-          await gapi.client.sheets.spreadsheets.values.update({
-            spreadsheetId: SPREADSHEET_ID,
-            range: update.range,
-            valueInputOption: 'RAW',
-            resource: { values: update.values }
-          });
+          await callRpc('updateSheet', { range: update.range, values: update.values });
         }
       }
     }
@@ -1310,11 +1031,9 @@ export const savePlanCosts = async (newCosts: PlanCosts) => {
       dateStr
     ]);
 
-    await gapi.client.sheets.spreadsheets.values.append({
-      spreadsheetId: SPREADSHEET_ID,
+    await callRpc('appendSheet', {
       range: `${CONFIG_SHEET_NAME}!A:D`,
-      valueInputOption: 'RAW',
-      resource: { values: newRows }
+      values: newRows
     });
 
     console.log('Plan costs saved successfully');
@@ -1333,16 +1052,10 @@ export const savePlanCosts = async (newCosts: PlanCosts) => {
  */
 export const createStudent = async (student: Student): Promise<Student> => {
   try {
-    if (!accessToken) throw new Error('Usuario no autenticado');
-    gapi.client.setToken({ access_token: accessToken });
-
     // 1. Load existing data to check for duplicates and get max ID
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${SHEET_NAME}!A:Z`,
-    });
+    const response = await callRpc('loadDataFromSheet');
 
-    const rows = response.result.values;
+    const rows = response.values;
     if (!rows || rows.length < 1) {
       throw new Error('No se pudo leer la hoja de alumnos');
     }
@@ -1457,11 +1170,9 @@ export const createStudent = async (student: Student): Promise<Student> => {
     }
 
     // 5. Append the new row to the sheet
-    await gapi.client.sheets.spreadsheets.values.append({
-      spreadsheetId: SPREADSHEET_ID,
+    await callRpc('appendSheet', {
       range: `${SHEET_NAME}!A:Z`,
-      valueInputOption: 'RAW',
-      resource: { values: [newRow] },
+      values: [newRow]
     });
 
     console.log(`Alumna creada exitosamente con ID ${newId}`);
@@ -1484,16 +1195,10 @@ export const createStudent = async (student: Student): Promise<Student> => {
  */
 export const updateStudent = async (student: Student): Promise<void> => {
   try {
-    if (!accessToken) throw new Error('Usuario no autenticado');
-    gapi.client.setToken({ access_token: accessToken });
-
     // 1. Load existing data to find the student row
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${SHEET_NAME}!A:Z`,
-    });
+    const response = await callRpc('loadDataFromSheet');
 
-    const rows = response.result.values;
+    const rows = response.values;
     if (!rows || rows.length < 2) {
       throw new Error('No se encontraron datos en la hoja de alumnos');
     }
@@ -1580,12 +1285,8 @@ export const updateStudent = async (student: Student): Promise<void> => {
 
     // 4. Batch update all cells
     if (updates.length > 0) {
-      await gapi.client.sheets.spreadsheets.values.batchUpdate({
-        spreadsheetId: SPREADSHEET_ID,
-        resource: {
-          valueInputOption: 'RAW',
-          data: updates,
-        },
+      await callRpc('batchUpdateValues', {
+        data: updates
       });
     }
 
@@ -1602,16 +1303,10 @@ export const updateStudent = async (student: Student): Promise<void> => {
  */
 export const deleteStudent = async (studentId: string): Promise<void> => {
   try {
-    if (!accessToken) throw new Error('Usuario no autenticado');
-    gapi.client.setToken({ access_token: accessToken });
-
     // 1. Load existing data to find the student row
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${SHEET_NAME}!A:Z`,
-    });
+    const response = await callRpc('loadDataFromSheet');
 
-    const rows = response.result.values;
+    const rows = response.values;
     if (!rows || rows.length < 2) {
       throw new Error('No se encontraron datos en la hoja de alumnos');
     }
@@ -1650,11 +1345,9 @@ export const deleteStudent = async (studentId: string): Promise<void> => {
     const colLetter = getColumnLetter(estadoIndex);
     const range = `${SHEET_NAME}!${colLetter}${rowIndex}`;
 
-    await gapi.client.sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
+    await callRpc('updateSheet', {
       range: range,
-      valueInputOption: 'RAW',
-      resource: { values: [['BORRADA']] },
+      values: [['BORRADA']]
     });
 
     console.log(`Alumna ${studentId} marcada como BORRADA exitosamente`);
@@ -1668,38 +1361,18 @@ export const deleteStudent = async (studentId: string): Promise<void> => {
 
 const ensureHolidaysSheetExists = async () => {
   try {
-    const spreadsheet = await gapi.client.sheets.spreadsheets.get({
-      spreadsheetId: SPREADSHEET_ID,
-    });
-
-    const sheetExists = spreadsheet.result.sheets.some(
+    const meta = await callRpc('getSpreadsheetMeta');
+    const sheetExists = meta.sheets.some(
       (sheet: any) => sheet.properties.title === HOLIDAYS_SHEET_NAME
     );
 
     if (!sheetExists) {
-      await gapi.client.sheets.spreadsheets.batchUpdate({
-        spreadsheetId: SPREADSHEET_ID,
-        resource: {
-          requests: [
-            {
-              addSheet: {
-                properties: {
-                  title: HOLIDAYS_SHEET_NAME,
-                },
-              },
-            },
-          ],
-        },
-      });
+      await callRpc('createSheet', { title: HOLIDAYS_SHEET_NAME });
 
       // Add header
-      await gapi.client.sheets.spreadsheets.values.update({
-        spreadsheetId: SPREADSHEET_ID,
+      await callRpc('updateSheet', {
         range: `${HOLIDAYS_SHEET_NAME}!A1:D1`,
-        valueInputOption: 'RAW',
-        resource: {
-          values: [['ID', 'StartDate', 'EndDate', 'Description']],
-        },
+        values: [['ID', 'StartDate', 'EndDate', 'Description']],
       });
     }
   } catch (error) {
@@ -1710,17 +1383,11 @@ const ensureHolidaysSheetExists = async () => {
 
 export const loadNonWorkingDays = async (): Promise<NonWorkingDay[]> => {
   try {
-    if (!accessToken) return [];
-    gapi.client.setToken({ access_token: accessToken });
-
     await ensureHolidaysSheetExists();
 
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${HOLIDAYS_SHEET_NAME}!A:D`,
-    });
+    const response = await callRpc('getSheetValues', { range: `${HOLIDAYS_SHEET_NAME}!A:D` });
 
-    const rows = response.result.values;
+    const rows = response.values;
     if (!rows || rows.length < 2) return [];
 
     // Skip header
@@ -1743,11 +1410,9 @@ export const addNonWorkingDay = async (day: Omit<NonWorkingDay, 'id'>): Promise<
     const newId = `holiday-${Date.now()}`;
     const newRow = [newId, day.startDate, day.endDate, day.description];
 
-    await gapi.client.sheets.spreadsheets.values.append({
-      spreadsheetId: SPREADSHEET_ID,
+    await callRpc('appendSheet', {
       range: `${HOLIDAYS_SHEET_NAME}!A:D`,
-      valueInputOption: 'RAW',
-      resource: { values: [newRow] },
+      values: [newRow]
     });
 
     return { id: newId, ...day };
@@ -1757,44 +1422,40 @@ export const addNonWorkingDay = async (day: Omit<NonWorkingDay, 'id'>): Promise<
   }
 };
 
+// Helper removed as it's not needed for RPC (we don't need sheetId for deleteRow usually, unless we use batchUpdate with deleteDimension)
+// But for deleteNonWorkingDay we do use deleteDimension which needs sheetId.
+// We can expose a getSheetId in RPC or just fetch meta.
 const getSheetIdByName = async (sheetName: string): Promise<number> => {
-  const spreadsheet = await gapi.client.sheets.spreadsheets.get({
-    spreadsheetId: SPREADSHEET_ID,
-  });
-  const sheet = spreadsheet.result.sheets.find((s: any) => s.properties.title === sheetName);
+  const meta = await callRpc('getSpreadsheetMeta');
+  const sheet = meta.sheets.find((s: any) => s.properties.title === sheetName);
   return sheet ? sheet.properties.sheetId : 0;
 };
 
 export const deleteNonWorkingDay = async (id: string): Promise<void> => {
   try {
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${HOLIDAYS_SHEET_NAME}!A:A`,
-    });
+    const response = await callRpc('getSheetValues', { range: `${HOLIDAYS_SHEET_NAME}!A:A` });
 
-    const rows = response.result.values;
+    const rows = response.values;
     if (!rows) return;
 
     const rowIndex = rows.findIndex((row: string[]) => row[0] === id);
     if (rowIndex === -1) return;
 
-    await gapi.client.sheets.spreadsheets.batchUpdate({
-      spreadsheetId: SPREADSHEET_ID,
-      resource: {
-        requests: [
-          {
-            deleteDimension: {
-              range: {
-                sheetId: await getSheetIdByName(HOLIDAYS_SHEET_NAME),
-                dimension: 'ROWS',
-                startIndex: rowIndex,
-                endIndex: rowIndex + 1,
-              },
-            },
-          },
-        ],
-      },
+    // We need to implement deleteRow in RPC or use batchUpdate
+    // Let's use batchUpdate generic call on RPC if available, or add deleteRow action.
+    // Checking rpc.ts... I recall I didn't add deleteRow.
+    // I can implement a 'batchUpdate' action in RPC.
+
+    // For now, assuming I'll add 'batchUpdate' or 'deleteRow'.
+    // Let's try to add 'batchUpdate' to RPC logic in next step.
+    // Here I'll call it.
+
+    await callRpc('deleteRow', {
+      sheetId: await getSheetIdByName(HOLIDAYS_SHEET_NAME),
+      rowIndex: rowIndex,
+      endRowIndex: rowIndex + 1
     });
+
   } catch (err: any) {
     console.error('Error deleting non-working day:', err);
     throw new Error('Error al eliminar día no laborable: ' + (err.message || 'Error desconocido'));
@@ -1803,15 +1464,9 @@ export const deleteNonWorkingDay = async (id: string): Promise<void> => {
 
 export const removeStudentFromAllFutureClasses = async (studentId: string) => {
   try {
-    if (!accessToken) throw new Error('Usuario no autenticado');
-    gapi.client.setToken({ access_token: accessToken });
-
     // 1. Clear CLASE 1, CLASE 2, CLASE 3 in '2025' sheet
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${SHEET_NAME}!A:Z`,
-    });
-    const rows = response.result.values;
+    const response = await callRpc('loadDataFromSheet');
+    const rows = response.values;
     if (!rows || rows.length < 2) throw new Error('No se encontraron datos en la hoja de alumnos');
 
     const header = rows[0].map((h: string) => h.trim());
@@ -1846,10 +1501,12 @@ export const removeStudentFromAllFutureClasses = async (studentId: string) => {
       if (clase3Index !== -1) updates.push({ range: `${SHEET_NAME}!${getColumnLetter(clase3Index)}${rowIndex}`, values: [['']] });
 
       if (updates.length > 0) {
-        await gapi.client.sheets.spreadsheets.values.batchUpdate({
-          spreadsheetId: SPREADSHEET_ID,
-          resource: { valueInputOption: 'RAW', data: updates }
-        });
+        // We'll execute updates sequentially as our updateSheet is one by one, 
+        // or we need to add batchUpdate support.
+        // For simplicity, sequential.
+        for (const update of updates) {
+          await callRpc('updateSheet', { range: update.range, values: update.values });
+        }
       }
     }
 
@@ -1858,15 +1515,12 @@ export const removeStudentFromAllFutureClasses = async (studentId: string) => {
     const monthYear = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
 
     // Check if sheet exists
-    const spreadsheet = await gapi.client.sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
-    const sheetExists = spreadsheet.result.sheets.some((s: any) => s.properties.title === monthYear);
+    const meta = await callRpc('getSpreadsheetMeta');
+    const sheetExists = meta.sheets.some((s: any) => s.properties.title === monthYear);
 
     if (sheetExists) {
-      const monthlyResponse = await gapi.client.sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: `${monthYear}!A:G`,
-      });
-      const monthlyRows = monthlyResponse.result.values;
+      const monthlyResponse = await callRpc('getSheetValues', { range: `${monthYear}!A:G` });
+      const monthlyRows = monthlyResponse.values;
       if (monthlyRows && monthlyRows.length > 1) {
         const mHeader = monthlyRows[0];
         const fechaIndex = mHeader.indexOf('FECHA');
@@ -1889,16 +1543,8 @@ export const removeStudentFromAllFutureClasses = async (studentId: string) => {
         });
 
         if (newRows.length < monthlyRows.length) {
-          await gapi.client.sheets.spreadsheets.values.clear({
-            spreadsheetId: SPREADSHEET_ID,
-            range: `${monthYear}!A:G`,
-          });
-          await gapi.client.sheets.spreadsheets.values.update({
-            spreadsheetId: SPREADSHEET_ID,
-            range: `${monthYear}!A1`,
-            valueInputOption: 'RAW',
-            resource: { values: newRows },
-          });
+          await callRpc('clearSheet', { range: `${monthYear}!A:G` });
+          await callRpc('updateSheet', { range: `${monthYear}!A1`, values: newRows });
         }
       }
     }

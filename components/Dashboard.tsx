@@ -1,14 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { UserButton, SignedIn, SignedOut } from '@clerk/clerk-react';
+import { UserButton, SignedIn, SignedOut, useUser } from '@clerk/clerk-react';
 import { Student, Schedule, Class, Booking, PaymentRecord, PlanCosts, NonWorkingDay } from '../types';
 import { initialPlanCosts } from '../dev-data';
 import { MAX_CAPACITY } from '../constants';
 import {
     loadDataFromSheet,
-    initGapi,
-    initGIS,
-    signIn,
-    isSignedIn,
     updateMonthlySheet,
     assignStudentToClassRecurring,
     removeStudentFromClassRecurring,
@@ -23,7 +19,8 @@ import {
     loadNonWorkingDays,
     addNonWorkingDay,
     deleteNonWorkingDay,
-    removeStudentFromAllFutureClasses
+    removeStudentFromAllFutureClasses,
+    setUserEmail
 } from '../services/googleSheetsService';
 
 import Header from './Header';
@@ -61,65 +58,17 @@ const Dashboard: React.FC = () => {
     const [currentView, setCurrentView] = useState<View>('schedule');
     const [currentWeek, setCurrentWeek] = useState(new Date());
 
+    const { user, isLoaded } = useUser();
+
     useEffect(() => {
-        const loadGoogleAPI = async () => {
-            setLoading(true);
-            setError(null);
-
-            try {
-                // Verificar que CLIENT_ID esté configurado
-                if (!import.meta.env.VITE_GOOGLE_CLIENT_ID) {
-                    throw new Error('VITE_GOOGLE_CLIENT_ID no está configurado en .env.local');
-                }
-
-                // Cargar el script de gapi
-                const gapiScript = document.createElement('script');
-                gapiScript.src = 'https://apis.google.com/js/api.js';
-                gapiScript.async = true;
-                gapiScript.defer = true;
-
-                await new Promise<void>((resolve, reject) => {
-                    gapiScript.onload = () => resolve();
-                    gapiScript.onerror = () => reject(new Error('No se pudo cargar el script de Google API'));
-                    document.head.appendChild(gapiScript);
-                });
-
-                // Cargar el script de Google Identity Services
-                const gisScript = document.createElement('script');
-                gisScript.src = 'https://accounts.google.com/gsi/client';
-                gisScript.async = true;
-                gisScript.defer = true;
-
-                await new Promise<void>((resolve, reject) => {
-                    gisScript.onload = () => resolve();
-                    gisScript.onerror = () => reject(new Error('No se pudo cargar Google Identity Services'));
-                    document.head.appendChild(gisScript);
-                });
-
-                // Inicializar gapi (solo client, no auth)
-                await initGapi();
-
-                // Inicializar Google Identity Services
-                await initGIS();
-
-                // Verificar si ya está autenticado
-                if (!isSignedIn()) {
-                    console.log('Usuario no autenticado, iniciando flujo de login...');
-                    await signIn();
-                }
-
-                // Cargar datos
+        const initData = async () => {
+            if (isLoaded && user && user.primaryEmailAddress) {
+                setUserEmail(user.primaryEmailAddress.emailAddress);
                 await fetchData();
-
-            } catch (err: any) {
-                console.error('Error completo:', err);
-                setError(err.message || 'Error desconocido al inicializar la aplicación');
-                setLoading(false);
             }
         };
-
-        loadGoogleAPI();
-    }, []);
+        initData();
+    }, [isLoaded, user]);
 
     const fetchData = async () => {
         setLoading(true);
