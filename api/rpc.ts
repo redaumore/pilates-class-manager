@@ -14,11 +14,20 @@ interface RpcBody {
 // GOOGLE_PRIVATE_KEY
 const getAuthClient = () => {
     const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-    const key = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+    let key = process.env.GOOGLE_PRIVATE_KEY;
 
     if (!email || !key) {
         throw new Error('Missing Google Service Account credentials');
     }
+
+    // Handle potential quoting from copy-paste (e.g. if user copied "key" with quotes)
+    if (key.startsWith('"') && key.endsWith('"')) {
+        key = key.slice(1, -1);
+    }
+
+    // Handle escaped newlines (common in Vercel env vars)
+    // We strictly replace literal \n with actual newlines
+    key = key.replace(/\\n/g, '\n');
 
     return new google.auth.GoogleAuth({
         credentials: {
@@ -30,11 +39,16 @@ const getAuthClient = () => {
 };
 
 const USER_SPREADSHEET_MAP: Record<string, string> = {
-    // This should be moved to a robust config or database
-    'default': '1onA2BHky-848DFSbaeTa_Qw-r8ZwpZ9nJteIn8-d1cc',
+    // This uses the environment variable or falls back to the hardcoded ID
+    'default': process.env.GOOGLE_SPREADSHEET_ID || '1onA2BHky-848DFSbaeTa_Qw-r8ZwpZ9nJteIn8-d1cc',
 };
 
 const getSpreadsheetId = (userEmail?: string) => {
+    // Priority: 1. Environment Variable (global override), 2. User Map, 3. Default
+    if (process.env.GOOGLE_SPREADSHEET_ID) {
+        return process.env.GOOGLE_SPREADSHEET_ID;
+    }
+
     if (userEmail && USER_SPREADSHEET_MAP[userEmail]) {
         return USER_SPREADSHEET_MAP[userEmail];
     }
