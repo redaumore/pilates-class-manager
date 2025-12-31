@@ -1,7 +1,7 @@
 {
   "name": "pilates-class-manager",
   "private": true,
-  "version": "1.27",
+  "version": "1.28",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -13,6 +13,7 @@
     "deploy": "gh-pages -d dist"
   },
   "dependencies": {
+    "@clerk/clerk-react": "^5.59.2",
     "gapi-script": "^1.2.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"

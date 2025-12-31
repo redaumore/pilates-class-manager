@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { UserButton } from '@clerk/clerk-react';
 import { MenuIcon, XIcon } from './icons';
 
 type View = 'schedule' | 'calendar' | 'students' | 'payments' | 'settings';
@@ -63,13 +64,16 @@ const Header: React.FC<HeaderProps> = ({ onNavigate, currentView }) => {
             </NavButton>
           </nav>
 
-          {/* Mobile Menu Button */}
-          <button
-            className="md:hidden p-2 rounded-md text-slate-600 hover:bg-slate-100 focus:outline-none"
-            onClick={() => setIsMenuOpen(!isMenuOpen)}
-          >
-            {isMenuOpen ? <XIcon className="w-6 h-6" /> : <MenuIcon className="w-6 h-6" />}
-          </button>
+          <div className="flex items-center gap-4">
+            <UserButton afterSignOutUrl="/" />
+            {/* Mobile Menu Button */}
+            <button
+              className="md:hidden p-2 rounded-md text-slate-600 hover:bg-slate-100 focus:outline-none"
+              onClick={() => setIsMenuOpen(!isMenuOpen)}
+            >
+              {isMenuOpen ? <XIcon className="w-6 h-6" /> : <MenuIcon className="w-6 h-6" />}
+            </button>
+          </div>
         </div>
 
         {/* Mobile Menu Dropdown */}
