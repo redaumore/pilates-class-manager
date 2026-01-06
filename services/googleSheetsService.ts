@@ -8,6 +8,7 @@ import {
   AttendanceStatus,
   PlanCosts,
   NonWorkingDay,
+  ScheduleConfig,
 } from '../types';
 import { generateInitialSchedule, DAY_CODE_MAP, DAY_NAME_TO_CODE } from '../constants';
 
@@ -55,6 +56,13 @@ export const ensureYearSheetsExist = async (year: string) => {
       await callRpc('createSheet', { title: configName });
       const headers = ['Plan', 'Cuota', 'Estado', 'Modificado'];
       await callRpc('updateSheet', { range: `'${configName}'!A1`, values: [headers] });
+
+      // Add default working days
+      const nowStr = new Date().toLocaleDateString('es-AR');
+      await callRpc('appendSheet', {
+        range: `'${configName}'!A:D`,
+        values: [['DiasLaborales', 'L,M,X,J,V', 'Vigente', nowStr]]
+      });
     }
 
     // 3. Holidays Sheet (YYYY-feriados)
@@ -106,11 +114,13 @@ const LEVEL_MAP: Record<string, Level> = {
 
 
 const dayIndexToName: Record<number, string> = {
+  0: 'Domingo',
   1: 'Lunes',
   2: 'Martes',
   3: 'Miércoles',
   4: 'Jueves',
   5: 'Viernes',
+  6: 'Sábado',
 };
 
 const MONTH_MAP: Record<string, string> = {
@@ -194,8 +204,9 @@ export const loadDataFromSheet = async (year?: string): Promise<{
       return acc;
     }, {} as Record<string, number>);
 
+    const scheduleConfig = await loadScheduleConfig();
     const students: Student[] = [];
-    const schedule: Schedule = generateInitialSchedule();
+    const schedule: Schedule = generateInitialSchedule(scheduleConfig || undefined);
     const payments: PaymentRecord = {};
 
     for (let i = 1; i < rows.length; i++) {
@@ -345,7 +356,8 @@ export const saveStudentToSheet = async (student: Student) => {
 export const updateMonthlySheet = async (
   schedule: Schedule,
   students: Student[],
-  monthYear: string
+  monthYear: string,
+  workingDays?: string[]
 ) => {
   try {
     // Check if the sheet exists
@@ -390,8 +402,17 @@ export const updateMonthlySheet = async (
     for (let day = 1; day <= daysInMonth; day++) {
       const date = new Date(year, month, day);
       const dayOfWeek = date.getDay();
-      if (dayOfWeek >= 1 && dayOfWeek <= 5) {
-        // Weekdays only
+
+      let shouldInclude = false;
+      if (workingDays) {
+        const dayCode = ['D', 'L', 'M', 'X', 'J', 'V', 'S'][dayOfWeek];
+        shouldInclude = workingDays.includes(dayCode);
+      } else {
+        shouldInclude = dayOfWeek >= 1 && dayOfWeek <= 5;
+      }
+
+      if (shouldInclude) {
+        // Classes for this day
         const dayName = dayIndexToName[dayOfWeek];
         const classes = schedule[dayName] || [];
         for (const classData of classes) {
@@ -1032,6 +1053,85 @@ export const loadPlanCosts = async (): Promise<PlanCosts | null> => {
   }
 };
 
+export const loadWorkingDays = async (): Promise<string[] | null> => {
+  try {
+    const meta = await callRpc('getSpreadsheetMeta');
+    const sheetExists = meta.sheets.some(
+      (sheet: any) => sheet.properties.title === getConfigSheetName()
+    );
+
+    if (!sheetExists) return null;
+
+    const response = await callRpc('getSheetValues', { range: `'${getConfigSheetName()}'!A:D` });
+    const rows = response.values;
+    if (!rows || rows.length < 2) return null;
+
+    const header = rows[0].map((h: string) => h.trim());
+    const planIndex = header.indexOf('Plan');
+    const estadoIndex = header.indexOf('Estado');
+
+    if (planIndex === -1 || estadoIndex === -1) return null;
+
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (row[planIndex] === 'DiasLaborales' && row[estadoIndex] === 'Vigente') {
+        const cuotaIndex = header.indexOf('Cuota');
+        if (cuotaIndex !== -1 && row[cuotaIndex]) {
+          return row[cuotaIndex].split(',').map((d: string) => d.trim());
+        }
+      }
+    }
+
+    return null;
+  } catch (err) {
+    console.error('Error loading working days:', err);
+    return null;
+  }
+};
+
+export const loadScheduleConfig = async (): Promise<ScheduleConfig | null> => {
+  try {
+    const response = await callRpc('getSheetValues', { range: `'${getConfigSheetName()}'!A:D` });
+    const rows = response.values;
+    if (!rows || rows.length < 2) return null;
+
+    const header = rows[0].map((h: string) => h.trim());
+    const planIndex = header.indexOf('Plan');
+    const cuotaIndex = header.indexOf('Cuota');
+    const estadoIndex = header.indexOf('Estado');
+
+    if (planIndex === -1 || cuotaIndex === -1 || estadoIndex === -1) return null;
+
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (row[planIndex] === 'HorariosClases' && row[estadoIndex] === 'Vigente') {
+        const rawValue = row[cuotaIndex];
+        if (!rawValue) continue;
+
+        const config: ScheduleConfig = {};
+        // Format: L:9,10|M:8,9,10
+        const days = rawValue.split('|');
+        for (const dayStr of days) {
+          const [dayCode, hoursStr] = dayStr.split(':');
+          const dayName = DAY_CODE_MAP[dayCode];
+          if (dayName && hoursStr) {
+            config[dayName] = hoursStr
+              .split(',')
+              .map((h: string) => parseInt(h.trim(), 10))
+              .filter((h: number) => !isNaN(h));
+          }
+        }
+        return Object.keys(config).length > 0 ? config : null;
+      }
+    }
+
+    return null;
+  } catch (err) {
+    console.error('Error loading schedule config:', err);
+    return null;
+  }
+};
+
 export const savePlanCosts = async (newCosts: PlanCosts) => {
   try {
     // 1. Ensure sheet exists
@@ -1101,6 +1201,102 @@ export const savePlanCosts = async (newCosts: PlanCosts) => {
   } catch (err: any) {
     console.error('Error saving plan costs:', err);
     throw new Error('Error al guardar la configuración de costos: ' + err.message);
+  }
+};
+
+export const saveWorkingDays = async (days: string[]) => {
+  try {
+    const configSheet = getConfigSheetName();
+    const response = await callRpc('getSheetValues', { range: `'${configSheet}'!A:D` });
+    const rows = response.values;
+
+    const today = new Date();
+    const nowStr = `${today.getDate().toString().padStart(2, '0')}-${(today.getMonth() + 1).toString().padStart(2, '0')}-${today.getFullYear()}`;
+    const updates = [];
+
+    if (rows && rows.length > 1) {
+      const header = rows[0].map((h: string) => h.trim());
+      const planIndex = header.indexOf('Plan');
+      const estadoIndex = header.indexOf('Estado');
+
+      for (let i = 1; i < rows.length; i++) {
+        if (rows[i][planIndex] === 'DiasLaborales' && rows[i][estadoIndex] === 'Vigente') {
+          const colLetter = String.fromCharCode(65 + estadoIndex);
+          updates.push({
+            range: `'${configSheet}'!${colLetter}${i + 1}`,
+            values: [['Inactivo']]
+          });
+        }
+      }
+    }
+
+    if (updates.length > 0) {
+      for (const update of updates) {
+        await callRpc('updateSheet', update);
+      }
+    }
+
+    await callRpc('appendSheet', {
+      range: `'${configSheet}'!A:D`,
+      values: [['DiasLaborales', days.join(','), 'Vigente', nowStr]]
+    });
+
+  } catch (err) {
+    console.error('Error saving working days:', err);
+    throw err;
+  }
+};
+
+export const saveScheduleConfig = async (config: ScheduleConfig) => {
+  try {
+    const configSheet = getConfigSheetName();
+    const response = await callRpc('getSheetValues', { range: `'${configSheet}'!A:D` });
+    const rows = response.values;
+
+    const today = new Date();
+    const nowStr = `${today.getDate().toString().padStart(2, '0')}-${(today.getMonth() + 1).toString().padStart(2, '0')}-${today.getFullYear()}`;
+
+    // Serialize config e.g., L:9,10|M:8,9,10
+    const serialized = Object.entries(config)
+      .map(([dayName, hours]) => {
+        const dayCode = DAY_NAME_TO_CODE[dayName];
+        return dayCode ? `${dayCode}:${hours.sort((a, b) => a - b).join(',')}` : '';
+      })
+      .filter(Boolean)
+      .join('|');
+
+    const updates = [];
+
+    if (rows && rows.length > 1) {
+      const header = rows[0].map((h: string) => h.trim());
+      const planIndex = header.indexOf('Plan');
+      const estadoIndex = header.indexOf('Estado');
+
+      for (let i = 1; i < rows.length; i++) {
+        if (rows[i][planIndex] === 'HorariosClases' && rows[i][estadoIndex] === 'Vigente') {
+          const colLetter = String.fromCharCode(65 + estadoIndex);
+          updates.push({
+            range: `'${configSheet}'!${colLetter}${i + 1}`,
+            values: [['Inactivo']]
+          });
+        }
+      }
+    }
+
+    if (updates.length > 0) {
+      for (const update of updates) {
+        await callRpc('updateSheet', update);
+      }
+    }
+
+    await callRpc('appendSheet', {
+      range: `'${configSheet}'!A:D`,
+      values: [['HorariosClases', serialized, 'Vigente', nowStr]]
+    });
+
+  } catch (err) {
+    console.error('Error saving schedule config:', err);
+    throw err;
   }
 };
 

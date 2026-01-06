@@ -96,20 +96,33 @@ const dayIndexToName: { [key: number]: string } = {
   0: 'Domingo',
 };
 
-const getWeekInfo = (date: Date) => {
+const getWeekInfo = (date: Date, workingDays?: string[]) => {
   const startOfWeek = new Date(date);
   const day = startOfWeek.getDay();
   const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1);
   startOfWeek.setDate(diff);
 
   const weekDates: Date[] = [];
-  for (let i = 0; i < 5; i++) { // Monday to Friday
+  // Loop 7 days to cover the whole week
+  for (let i = 0; i < 7; i++) {
     const weekDay = new Date(startOfWeek);
     weekDay.setDate(startOfWeek.getDate() + i);
-    weekDates.push(weekDay);
+
+    // If workingDays is provided, only include those days
+    if (workingDays) {
+      const dayCode = ['D', 'L', 'M', 'X', 'J', 'V', 'S'][weekDay.getDay()];
+      if (workingDays.includes(dayCode)) {
+        weekDates.push(weekDay);
+      }
+    } else {
+      // Default to Mon-Fri if no workingDays provided
+      if (weekDay.getDay() >= 1 && weekDay.getDay() <= 5) {
+        weekDates.push(weekDay);
+      }
+    }
   }
 
-  const endOfWeek = weekDates[4];
+  const endOfWeek = weekDates[weekDates.length - 1] || startOfWeek;
 
   const startMonth = startOfWeek.toLocaleString('es-ES', { month: 'long' });
   const endMonth = endOfWeek.toLocaleString('es-ES', { month: 'long' });
@@ -133,6 +146,7 @@ interface ScheduleViewProps {
   onWeekChange: (direction: 'next' | 'prev') => void;
   nonWorkingDays: NonWorkingDay[];
   onYearChange?: (year: string) => void;
+  workingDays?: string[];
 }
 
 const isDateNonWorking = (date: Date, holidays: NonWorkingDay[]): NonWorkingDay | undefined => {
@@ -142,8 +156,18 @@ const isDateNonWorking = (date: Date, holidays: NonWorkingDay[]): NonWorkingDay 
   });
 };
 
-const ScheduleView: React.FC<ScheduleViewProps> = ({ schedule, students, onClassClick, currentWeek, onWeekChange, nonWorkingDays }) => {
-  const { weekDates, rangeString } = getWeekInfo(currentWeek);
+const ScheduleView: React.FC<ScheduleViewProps> = ({ schedule, students, onClassClick, currentWeek, onWeekChange, nonWorkingDays, workingDays }) => {
+  const { weekDates, rangeString } = getWeekInfo(currentWeek, workingDays);
+
+  const gridCols = {
+    1: 'lg:grid-cols-1',
+    2: 'lg:grid-cols-2',
+    3: 'lg:grid-cols-3',
+    4: 'lg:grid-cols-4',
+    5: 'lg:grid-cols-5',
+    6: 'lg:grid-cols-6',
+    7: 'lg:grid-cols-7',
+  }[weekDates.length as keyof typeof gridCols] || 'lg:grid-cols-5';
 
   return (
     <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md">
@@ -158,7 +182,7 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ schedule, students, onClass
           <ChevronRightIcon className="w-6 h-6 text-slate-600" />
         </button>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 sm:gap-6">
+      <div className={`grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 ${gridCols} gap-4 sm:gap-6`}>
         {weekDates.map(date => {
           const dayName = dayIndexToName[date.getDay()];
           const classesForDay = schedule[dayName] || [];

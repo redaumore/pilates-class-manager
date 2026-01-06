@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { UserButton, SignedIn, SignedOut, useUser } from '@clerk/clerk-react';
-import { Student, Schedule, Class, Booking, PaymentRecord, PlanCosts, NonWorkingDay } from '../types';
+import { Student, Schedule, Class, Booking, PaymentRecord, PlanCosts, NonWorkingDay, ScheduleConfig } from '../types';
 import { initialPlanCosts } from '../dev-data';
-import { MAX_CAPACITY } from '../constants';
+import { MAX_CAPACITY, DAY_CODE_MAP } from '../constants';
 import {
     loadDataFromSheet,
     updateMonthlySheet,
@@ -13,6 +13,8 @@ import {
     updatePaymentStatus,
     loadPlanCosts,
     savePlanCosts,
+    loadWorkingDays,
+    saveWorkingDays,
     createStudent,
     updateStudent,
     deleteStudent,
@@ -20,7 +22,9 @@ import {
     addNonWorkingDay,
     deleteNonWorkingDay,
     removeStudentFromAllFutureClasses,
-    setUserEmail
+    setUserEmail,
+    loadScheduleConfig,
+    saveScheduleConfig
 } from '../services/googleSheetsService';
 
 import Header from './Header';
@@ -58,6 +62,9 @@ const Dashboard: React.FC = () => {
     const [currentView, setCurrentView] = useState<View>('schedule');
     const [currentWeek, setCurrentWeek] = useState(new Date());
     const [activeYear, setActiveYear] = useState(new Date().getFullYear().toString());
+    const [workingDays, setWorkingDays] = useState<string[]>(['L', 'M', 'X', 'J', 'V']);
+    const [scheduleConfig, setScheduleConfig] = useState<ScheduleConfig | null>(null);
+    const [isSaving, setIsSaving] = useState(false);
 
     const { user, isLoaded } = useUser();
 
@@ -77,16 +84,43 @@ const Dashboard: React.FC = () => {
             setSchedule(schedule);
             setPayments(payments);
 
-            // Update the monthly sheet
-            const now = new Date();
-            const monthToUse = (now.getFullYear().toString() === year) ? String(now.getMonth() + 1).padStart(2, '0') : '01';
-            const monthYear = `${year}-${monthToUse}`;
-            await updateMonthlySheet(schedule, students, monthYear);
-
             // Load plan costs
             const loadedCosts = await loadPlanCosts();
             if (loadedCosts) {
                 setPlanCosts(loadedCosts);
+            }
+
+            // Load working days
+            const loadedWorkingDays = await loadWorkingDays();
+            if (loadedWorkingDays) {
+                setWorkingDays(loadedWorkingDays);
+            }
+
+            // Update the monthly sheet
+            const now = new Date();
+            const monthToUse = (now.getFullYear().toString() === year) ? String(now.getMonth() + 1).padStart(2, '0') : '01';
+            const monthYear = `${year}-${monthToUse}`;
+            await updateMonthlySheet(schedule, students, monthYear, loadedWorkingDays || workingDays);
+
+            // Load schedule config
+            const loadedScheduleConfig = await loadScheduleConfig();
+            if (loadedScheduleConfig) {
+                setScheduleConfig(loadedScheduleConfig);
+                // Sync workingDays with config keys
+                const daysFromConfig = Object.keys(loadedScheduleConfig)
+                    .map(day => {
+                        const code = Object.entries(DAY_CODE_MAP).find(([_, name]) => name === day)?.[0];
+                        return code;
+                    })
+                    .filter((c): c is string => !!c)
+                    .sort((a, b) => {
+                        const order = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+                        return order.indexOf(a) - order.indexOf(b);
+                    });
+
+                if (daysFromConfig.length > 0) {
+                    setWorkingDays(daysFromConfig);
+                }
             }
 
             // Load non-working days
@@ -126,6 +160,7 @@ const Dashboard: React.FC = () => {
     };
 
     const handleSaveStudent = async (studentData: Student) => {
+        setIsSaving(true);
         try {
             const isNewStudent = !students.find(s => s.id === studentData.id);
 
@@ -167,11 +202,14 @@ const Dashboard: React.FC = () => {
         } catch (error: any) {
             console.error('Error saving student:', error);
             alert('Error al guardar la alumna: ' + (error.message || 'Error desconocido'));
+        } finally {
+            setIsSaving(false);
         }
     };
 
     const handleDeleteStudent = async (studentId: string) => {
         if (window.confirm('¿Seguro que quieres eliminar a esta alumna? Se cancelarán todas sus clases y se eliminarán sus registros de pago.')) {
+            setIsSaving(true);
             try {
                 // Mark student as deleted in Google Sheets
                 await deleteStudent(studentId);
@@ -196,6 +234,8 @@ const Dashboard: React.FC = () => {
             } catch (error: any) {
                 console.error('Error deleting student:', error);
                 alert('Error al eliminar la alumna: ' + (error.message || 'Error desconocido'));
+            } finally {
+                setIsSaving(false);
             }
         }
     };
@@ -223,6 +263,7 @@ const Dashboard: React.FC = () => {
     };
 
     const handleUnbookStudentPermanently = async (studentId: string, classId: string, date: string) => {
+        setIsSaving(true);
         try {
             const monthYear = date.substring(0, 7);
             await removeStudentFromClassRecurring(studentId, classId, monthYear);
@@ -271,10 +312,13 @@ const Dashboard: React.FC = () => {
         } catch (error) {
             console.error("Error removing student permanently:", error);
             alert("Error al desasignar alumna de la clase recurrente. Revisa la consola para más detalles.");
+        } finally {
+            setIsSaving(false);
         }
     };
 
     const handleUnbookStudentForDay = async (studentId: string, classId: string, date: string, withMakeup: boolean) => {
+        setIsSaving(true);
         try {
             await registerStudentAbsence(studentId, classId, date, withMakeup);
 
@@ -335,10 +379,13 @@ const Dashboard: React.FC = () => {
         } catch (error) {
             console.error("Error unbooking student for day:", error);
             alert("Error al desasignar alumna de la clase. Revisa la consola para más detalles.");
+        } finally {
+            setIsSaving(false);
         }
     };
 
     const handleAssignStudentPermanently = async (studentId: string, classId: string, startDate: string) => {
+        setIsSaving(true);
         try {
             const monthYear = startDate.substring(0, 7);
             await assignStudentToClassRecurring(studentId, classId, monthYear);
@@ -370,10 +417,13 @@ const Dashboard: React.FC = () => {
         } catch (error) {
             console.error("Error assigning student permanently:", error);
             alert("Error al asignar alumna a la clase recurrente. Revisa la consola para más detalles.");
+        } finally {
+            setIsSaving(false);
         }
     };
 
     const handleAssignStudentForDay = async (studentId: string, classId: string, date: string) => {
+        setIsSaving(true);
         try {
             await assignStudentToClassSingleDay(studentId, classId, date);
 
@@ -413,6 +463,8 @@ const Dashboard: React.FC = () => {
         } catch (error) {
             console.error("Error assigning student for day:", error);
             alert("Error al asignar alumna por el día. Revisa si tiene clases para recuperar.");
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -423,6 +475,7 @@ const Dashboard: React.FC = () => {
     };
 
     const handleMarkPayment = async (studentId: string, monthYear: string, paymentDate: string) => {
+        setIsSaving(true);
         try {
             await updatePaymentStatus(studentId, monthYear, paymentDate);
             setPayments(prev => {
@@ -438,10 +491,13 @@ const Dashboard: React.FC = () => {
         } catch (error) {
             console.error("Error marking payment:", error);
             alert("Error al registrar el pago. Revisa la consola.");
+        } finally {
+            setIsSaving(false);
         }
     };
 
     const handleUndoPayment = async (studentId: string, monthYear: string) => {
+        setIsSaving(true);
         try {
             await updatePaymentStatus(studentId, monthYear, '');
             setPayments(prev => {
@@ -456,6 +512,8 @@ const Dashboard: React.FC = () => {
         } catch (error) {
             console.error("Error undoing payment:", error);
             alert("Error al deshacer el pago. Revisa la consola.");
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -477,6 +535,28 @@ const Dashboard: React.FC = () => {
             setPlanCosts(newCosts);
         } catch (error) {
             console.error("Error saving plan costs:", error);
+            throw error;
+        }
+    };
+
+    const handleSaveWorkingDays = async (days: string[]) => {
+        try {
+            await saveWorkingDays(days);
+            setWorkingDays(days);
+        } catch (error) {
+            console.error("Error saving working days:", error);
+            throw error;
+        }
+    };
+
+    const handleSaveScheduleConfig = async (config: ScheduleConfig) => {
+        try {
+            await saveScheduleConfig(config);
+            setScheduleConfig(config);
+            // Re-fetch data to apply new schedule
+            await fetchData(activeYear);
+        } catch (error) {
+            console.error("Error saving schedule config:", error);
             throw error;
         }
     };
@@ -511,6 +591,8 @@ const Dashboard: React.FC = () => {
                     currentWeek={currentWeek}
                     onWeekChange={handleWeekChange}
                     nonWorkingDays={nonWorkingDays}
+                    onYearChange={setActiveYear}
+                    workingDays={workingDays}
                 />;
             case 'calendar':
                 return <CalendarPage
@@ -519,6 +601,7 @@ const Dashboard: React.FC = () => {
                     onClassClick={handleClassClick}
                     nonWorkingDays={nonWorkingDays}
                     onYearChange={setActiveYear}
+                    workingDays={workingDays}
                 />;
             case 'students':
                 return <StudentManagementPage
@@ -534,6 +617,7 @@ const Dashboard: React.FC = () => {
                     planCosts={planCosts}
                     onMarkPayment={handleMarkPayment}
                     onUndoPayment={handleUndoPayment}
+                    isSaving={isSaving}
                 />;
             case 'settings':
                 return <SettingsPage
@@ -542,6 +626,10 @@ const Dashboard: React.FC = () => {
                     nonWorkingDays={nonWorkingDays}
                     onAddNonWorkingDay={handleAddNonWorkingDay}
                     onDeleteNonWorkingDay={handleDeleteNonWorkingDay}
+                    workingDays={workingDays}
+                    onSaveWorkingDays={handleSaveWorkingDays}
+                    scheduleConfig={scheduleConfig}
+                    onSaveScheduleConfig={handleSaveScheduleConfig}
                 />;
         }
     }
@@ -587,6 +675,7 @@ const Dashboard: React.FC = () => {
                 onClose={() => setIsStudentFormOpen(false)}
                 onSave={handleSaveStudent}
                 studentToEdit={studentToEdit}
+                isSaving={isSaving}
             />
 
             {selectedClass && <ClassDetailModal
@@ -602,6 +691,7 @@ const Dashboard: React.FC = () => {
                     setIsClassDetailOpen(false);
                     setIsAssignClassOpen(true);
                 }}
+                isSaving={isSaving}
             />}
 
             {selectedClass && selectedDate && <AssignClassModal
@@ -628,6 +718,7 @@ const Dashboard: React.FC = () => {
                 onAssignPermanently={() => handleAssignStudentPermanently(studentToAssign.id, selectedClass.id, selectedDate)}
                 onAssignForDay={() => handleAssignStudentForDay(studentToAssign.id, selectedClass.id, selectedDate)}
                 currentBookingsCount={getStudentBookingsCount(studentToAssign.id)}
+                isSaving={isSaving}
             />}
         </div>
     );

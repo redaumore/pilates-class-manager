@@ -65,3 +65,5 @@ export interface NonWorkingDay {
   endDate: string;   // YYYY-MM-DD
   description: string;
 }
+
+export type ScheduleConfig = Record<string, number[]>;

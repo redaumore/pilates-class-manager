@@ -1,5 +1,5 @@
 
-import { Level, Schedule } from './types';
+import { Level, Schedule, ScheduleConfig } from './types';
 
 export const WEEK_SCHEDULE_CONFIG: Record<string, number[]> = {
   Lunes: [16, 17, 18, 19],
@@ -15,6 +15,8 @@ export const DAY_CODE_MAP: Record<string, string> = {
   X: 'Miércoles',
   J: 'Jueves',
   V: 'Viernes',
+  S: 'Sábado',
+  D: 'Domingo',
 };
 
 export const DAY_NAME_TO_CODE: Record<string, string> = {
@@ -23,12 +25,16 @@ export const DAY_NAME_TO_CODE: Record<string, string> = {
   Miércoles: 'X',
   Jueves: 'J',
   Viernes: 'V',
+  Sábado: 'S',
+  Domingo: 'D',
 };
 
-export const generateInitialSchedule = (): Schedule => {
+export const generateInitialSchedule = (config?: ScheduleConfig): Schedule => {
   const schedule: Schedule = {};
-  for (const day in WEEK_SCHEDULE_CONFIG) {
-    schedule[day] = WEEK_SCHEDULE_CONFIG[day].map(time => ({
+  const activeConfig = config || WEEK_SCHEDULE_CONFIG;
+
+  for (const day in activeConfig) {
+    schedule[day] = activeConfig[day].map(time => ({
       id: `${DAY_NAME_TO_CODE[day]}${time}`,
       day,
       time,

@@ -7,9 +7,10 @@ interface StudentFormModalProps {
   onClose: () => void;
   onSave: (student: Student) => void;
   studentToEdit?: Student | null;
+  isSaving?: boolean;
 }
 
-const StudentFormModal: React.FC<StudentFormModalProps> = ({ isOpen, onClose, onSave, studentToEdit }) => {
+const StudentFormModal: React.FC<StudentFormModalProps> = ({ isOpen, onClose, onSave, studentToEdit, isSaving = false }) => {
   const [formData, setFormData] = useState({
     nombre: '',
     apellido: '',
@@ -67,7 +68,7 @@ const StudentFormModal: React.FC<StudentFormModalProps> = ({ isOpen, onClose, on
       plan: formData.plan as Plan,
     };
     onSave(studentData);
-    onClose();
+    // Modal will be closed in Dashboard after successful save
   };
 
   return (
@@ -119,11 +120,11 @@ const StudentFormModal: React.FC<StudentFormModalProps> = ({ isOpen, onClose, on
           />
         </div>
         <div className="pt-4 flex flex-col sm:flex-row justify-end gap-3">
-          <button type="button" onClick={onClose} className="w-full sm:w-auto px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-400 order-2 sm:order-1">
+          <button type="button" onClick={onClose} disabled={isSaving} className="w-full sm:w-auto px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-400 order-2 sm:order-1 disabled:opacity-50 disabled:cursor-not-allowed">
             Cancelar
           </button>
-          <button type="submit" className="w-full sm:w-auto px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 order-1 sm:order-2">
-            Guardar
+          <button type="submit" disabled={isSaving} className="w-full sm:w-auto px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 order-1 sm:order-2 disabled:bg-blue-400 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+            {isSaving ? 'Guardando...' : 'Guardar'}
           </button>
         </div>
       </form>

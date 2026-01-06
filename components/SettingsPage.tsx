@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { PlanCosts, Plan, NonWorkingDay } from '../types';
+import { PlanCosts, Plan, NonWorkingDay, ScheduleConfig } from '../types';
 import { TrashIcon } from './icons';
+import { DAY_CODE_MAP } from '../constants';
 
 interface SettingsPageProps {
   planCosts: PlanCosts;
@@ -8,6 +9,10 @@ interface SettingsPageProps {
   nonWorkingDays: NonWorkingDay[];
   onAddNonWorkingDay: (day: Omit<NonWorkingDay, 'id'>) => Promise<void>;
   onDeleteNonWorkingDay: (id: string) => Promise<void>;
+  workingDays: string[];
+  onSaveWorkingDays: (days: string[]) => Promise<void>;
+  scheduleConfig: ScheduleConfig | null;
+  onSaveScheduleConfig: (config: ScheduleConfig) => Promise<void>;
 }
 
 const SettingsPage: React.FC<SettingsPageProps> = ({
@@ -15,10 +20,18 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   onSave,
   nonWorkingDays,
   onAddNonWorkingDay,
-  onDeleteNonWorkingDay
+  onDeleteNonWorkingDay,
+  workingDays,
+  onSaveWorkingDays,
+  scheduleConfig,
+  onSaveScheduleConfig
 }) => {
   const [costs, setCosts] = useState<PlanCosts>(planCosts);
+  const [currentWorkingDays, setCurrentWorkingDays] = useState<string[]>(workingDays);
+  const [currentScheduleConfig, setCurrentScheduleConfig] = useState<ScheduleConfig>({});
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [daysSaveStatus, setDaysSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [scheduleSaveStatus, setScheduleSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [error, setError] = useState<string | null>(null);
 
   // State for new non-working day form
@@ -29,9 +42,67 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   });
   const [addingHoliday, setAddingHoliday] = useState(false);
 
+  const HOURS = Array.from({ length: 15 }, (_, i) => i + 7); // 7:00 to 21:00
+
   useEffect(() => {
     setCosts(planCosts);
   }, [planCosts]);
+
+  useEffect(() => {
+    setCurrentWorkingDays(workingDays);
+  }, [workingDays]);
+
+  useEffect(() => {
+    if (scheduleConfig) {
+      setCurrentScheduleConfig(scheduleConfig);
+    }
+  }, [scheduleConfig]);
+
+  const toggleHour = (dayName: string, hour: number) => {
+    setCurrentScheduleConfig(prev => {
+      const dayHours = prev[dayName] || [];
+      const newHours = dayHours.includes(hour)
+        ? dayHours.filter(h => h !== hour)
+        : [...dayHours, hour].sort((a, b) => a - b);
+
+      const newConfig = { ...prev, [dayName]: newHours };
+      if (newHours.length === 0) {
+        delete newConfig[dayName];
+      }
+      return newConfig;
+    });
+  };
+
+  const handleScheduleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setScheduleSaveStatus('saving');
+    try {
+      await onSaveScheduleConfig(currentScheduleConfig);
+
+      // Also update workingDays for compatibility
+      const newWorkingDays = Object.keys(currentScheduleConfig)
+        .map(day => {
+          const entry = Object.entries(DAY_CODE_MAP).find(([_, name]) => name === day);
+          return entry ? entry[0] : null;
+        })
+        .filter((d): d is string => d !== null)
+        .sort((a, b) => {
+          const order = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+          return order.indexOf(a) - order.indexOf(b);
+        });
+
+      if (JSON.stringify(newWorkingDays) !== JSON.stringify(currentWorkingDays)) {
+        await onSaveWorkingDays(newWorkingDays);
+      }
+
+      setScheduleSaveStatus('saved');
+      setTimeout(() => setScheduleSaveStatus('idle'), 2000);
+    } catch (err) {
+      console.error(err);
+      setScheduleSaveStatus('idle');
+      alert('Hubo un problema al guardar los horarios.');
+    }
+  };
 
   const handleChange = (plan: Plan, value: string) => {
     const newCost = value === '' ? 0 : parseInt(value, 10);
@@ -63,7 +134,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     try {
       await onAddNonWorkingDay({
         startDate: newHoliday.startDate,
-        endDate: newHoliday.endDate || newHoliday.startDate, // Default to single day if end date not provided
+        endDate: newHoliday.endDate || newHoliday.startDate,
         description: newHoliday.description
       });
       setNewHoliday({ startDate: '', endDate: '', description: '' });
@@ -88,6 +159,52 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
+      {/* Schedule Configuration Section */}
+      <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md">
+        <h2 className="text-xl font-bold text-blue-800 mb-6">Configuración de Horarios de Clase</h2>
+        <form onSubmit={handleScheduleSubmit} className="space-y-6">
+          <p className="text-slate-600 mb-4 text-sm">Configura los días y horarios en los que se dictan clases. Al marcar una hora, el día se activará automáticamente.</p>
+
+          <div className="space-y-6">
+            {['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'].map(dayName => (
+              <div key={dayName} className="border-b border-slate-100 pb-4 last:border-0">
+                <h3 className="font-semibold text-slate-700 mb-3">{dayName}</h3>
+                <div className="flex flex-wrap gap-2">
+                  {HOURS.map(hour => {
+                    const isSelected = currentScheduleConfig[dayName]?.includes(hour);
+                    return (
+                      <button
+                        key={hour}
+                        type="button"
+                        onClick={() => toggleHour(dayName, hour)}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 border ${isSelected
+                          ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
+                          : 'bg-white border-slate-200 text-slate-500 hover:border-blue-300 hover:text-blue-600'
+                          }`}
+                      >
+                        {hour}:00
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex justify-end pt-4">
+            <button
+              type="submit"
+              className="w-full sm:w-auto px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-slate-400 transition-colors duration-200 flex items-center justify-center font-semibold"
+              disabled={scheduleSaveStatus === 'saving' || Object.keys(currentScheduleConfig).length === 0}
+            >
+              {scheduleSaveStatus === 'idle' && 'Guardar Horarios'}
+              {scheduleSaveStatus === 'saving' && 'Guardando...'}
+              {scheduleSaveStatus === 'saved' && '¡Guardado!'}
+            </button>
+          </div>
+        </form>
+      </div>
+
       {/* Plan Costs Section */}
       <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md">
         <h2 className="text-xl font-bold text-blue-800 mb-6">Configuración de Costos</h2>

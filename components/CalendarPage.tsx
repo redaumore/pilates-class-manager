@@ -10,9 +10,11 @@ const dayIndexToName: { [key: number]: string } = {
   3: 'Miércoles',
   4: 'Jueves',
   5: 'Viernes',
+  6: 'Sábado',
+  0: 'Domingo',
 };
 
-const WEEK_DAYS = ['L', 'M', 'X', 'J', 'V'];
+const DAY_CODES = ['D', 'L', 'M', 'X', 'J', 'V', 'S'];
 
 interface CalendarPageProps {
   schedule: Schedule;
@@ -20,6 +22,7 @@ interface CalendarPageProps {
   onClassClick: (classData: Class, date: string) => void;
   nonWorkingDays: NonWorkingDay[];
   onYearChange?: (year: string) => void;
+  workingDays?: string[];
 }
 
 const isDateNonWorking = (date: Date, holidays: NonWorkingDay[]): NonWorkingDay | undefined => {
@@ -29,7 +32,7 @@ const isDateNonWorking = (date: Date, holidays: NonWorkingDay[]): NonWorkingDay 
   });
 };
 
-const CalendarPage: React.FC<CalendarPageProps> = ({ schedule, students, onClassClick, nonWorkingDays, onYearChange }) => {
+const CalendarPage: React.FC<CalendarPageProps> = ({ schedule, students, onClassClick, nonWorkingDays, onYearChange, workingDays }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
 
   const changeMonth = (amount: number) => {
@@ -49,25 +52,31 @@ const CalendarPage: React.FC<CalendarPageProps> = ({ schedule, students, onClass
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
 
+  const activeWorkingDays = workingDays || ['L', 'M', 'X', 'J', 'V'];
+
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const monthWeekdays = [];
+  const monthActiveDays = [];
   for (let i = 1; i <= daysInMonth; i++) {
     const day = new Date(year, month, i);
     const dayOfWeek = day.getDay();
-    // Only include weekdays (Monday=1 to Friday=5)
-    if (dayOfWeek >= 1 && dayOfWeek <= 5) {
-      monthWeekdays.push(day);
+    const dayCode = DAY_CODES[dayOfWeek];
+    if (activeWorkingDays.includes(dayCode)) {
+      monthActiveDays.push(day);
     }
   }
 
   const calendarDays = [];
-  if (monthWeekdays.length > 0) {
-    const firstDayOfWeek = monthWeekdays[0].getDay(); // 1 for Monday
-    const padding = firstDayOfWeek - 1;
+  if (monthActiveDays.length > 0) {
+    // Find the first day of the week that is "active" 
+    // This is tricky for padding. Let's find the logical index in activeWorkingDays
+    const firstDay = monthActiveDays[0];
+    const firstDayCode = DAY_CODES[firstDay.getDay()];
+    const padding = activeWorkingDays.indexOf(firstDayCode);
+
     for (let i = 0; i < padding; i++) {
       calendarDays.push(null);
     }
-    calendarDays.push(...monthWeekdays);
+    calendarDays.push(...monthActiveDays);
   }
 
   const today = new Date();
@@ -76,6 +85,16 @@ const CalendarPage: React.FC<CalendarPageProps> = ({ schedule, students, onClass
     const dateString = date.toISOString().split('T')[0];
     onClassClick(classData, dateString);
   };
+
+  const gridCols = {
+    1: 'grid-cols-1',
+    2: 'grid-cols-2',
+    3: 'grid-cols-3',
+    4: 'grid-cols-4',
+    5: 'grid-cols-5',
+    6: 'grid-cols-6',
+    7: 'grid-cols-7',
+  }[activeWorkingDays.length as keyof typeof gridCols] || 'grid-cols-5';
 
   return (
     <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md">
@@ -91,11 +110,11 @@ const CalendarPage: React.FC<CalendarPageProps> = ({ schedule, students, onClass
         </button>
       </div>
 
-      <div className="grid grid-cols-5 gap-1 text-center font-semibold text-slate-500 text-sm mb-2">
-        {WEEK_DAYS.map(day => <div key={day}>{day}</div>)}
+      <div className={`grid ${gridCols} gap-1 text-center font-semibold text-slate-500 text-sm mb-2`}>
+        {activeWorkingDays.map(day => <div key={day}>{day}</div>)}
       </div>
 
-      <div className="grid grid-cols-5 gap-1 sm:gap-2">
+      <div className={`grid ${gridCols} gap-1 sm:gap-2`}>
         {calendarDays.map((day, index) => {
           if (!day) return <div key={`empty-${index}`} className="border rounded-lg border-transparent"></div>;
 

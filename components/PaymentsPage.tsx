@@ -9,9 +9,10 @@ interface PaymentsPageProps {
   planCosts: PlanCosts;
   onMarkPayment: (studentId: string, monthYear: string, date: string) => void;
   onUndoPayment: (studentId: string, monthYear: string) => void;
+  isSaving?: boolean;
 }
 
-const PaymentsPage: React.FC<PaymentsPageProps> = ({ students, payments, planCosts, onMarkPayment, onUndoPayment }) => {
+const PaymentsPage: React.FC<PaymentsPageProps> = ({ students, payments, planCosts, onMarkPayment, onUndoPayment, isSaving = false }) => {
   const [viewDate, setViewDate] = useState(new Date());
   const [searchTerm, setSearchTerm] = useState('');
   const [showOnlyUnpaid, setShowOnlyUnpaid] = useState(false);
@@ -27,13 +28,14 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({ students, payments, planCos
   };
 
   const handleOpenPaymentModal = (student: Student) => {
+    if (isSaving) return;
     setSelectedStudent(student);
     setIsPaymentModalOpen(true);
   };
 
   const handleSavePayment = (date: string) => {
     if (selectedStudent) {
-        onMarkPayment(selectedStudent.id, monthYear, date);
+      onMarkPayment(selectedStudent.id, monthYear, date);
     }
     setIsPaymentModalOpen(false);
     setSelectedStudent(null);
@@ -46,13 +48,13 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({ students, payments, planCos
     let potential = 0;
 
     for (const student of students) {
-        const cost = planCosts[student.plan] || 0;
-        potential += cost;
+      const cost = planCosts[student.plan] || 0;
+      potential += cost;
 
-        const hasPaid = !!payments[student.id]?.[monthYear];
-        if (hasPaid) {
-            collected += cost;
-        }
+      const hasPaid = !!payments[student.id]?.[monthYear];
+      if (hasPaid) {
+        collected += cost;
+      }
     }
     return { totalCollected: collected, totalPotential: potential };
   }, [students, payments, planCosts, viewDate]);
@@ -61,11 +63,11 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({ students, payments, planCos
   const isCurrentMonth = viewDate.getFullYear() === today.getFullYear() && viewDate.getMonth() === today.getMonth();
   const isPastDeadline = isCurrentMonth && today.getDate() > 10;
 
-  const filteredStudents = students.filter(s => 
+  const filteredStudents = students.filter(s =>
     `${s.nombre} ${s.apellido}`.toLowerCase().includes(searchTerm.toLowerCase())
   ).filter(s => {
     if (!showOnlyUnpaid) {
-        return true;
+      return true;
     }
     const paymentDate = payments[s.id]?.[monthYear];
     return !paymentDate;
@@ -73,9 +75,9 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({ students, payments, planCos
 
   const formatDate = (dateString: string) => {
     return new Date(dateString + 'T00:00:00').toLocaleDateString('es-ES', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
     });
   }
 
@@ -84,29 +86,29 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({ students, payments, planCos
       <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md">
         <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
           <h2 className="text-xl font-bold text-blue-800">Gestión de Pagos</h2>
-          
+
           <div className="w-full sm:w-auto flex flex-col md:flex-row items-center gap-4">
             <div className="flex items-center gap-2">
-              <button onClick={() => changeMonth(-1)} className="p-2 rounded-full hover:bg-slate-100 transition-colors">
+              <button disabled={isSaving} onClick={() => changeMonth(-1)} className="p-2 rounded-full hover:bg-slate-100 transition-colors disabled:opacity-50">
                 <ChevronLeftIcon className="w-6 h-6 text-slate-600" />
               </button>
               <h3 className="text-lg font-semibold text-blue-700 w-48 text-center capitalize">
                 {viewDate.toLocaleString('es-ES', { month: 'long', year: 'numeric' })}
               </h3>
-              <button onClick={() => changeMonth(1)} className="p-2 rounded-full hover:bg-slate-100 transition-colors">
+              <button disabled={isSaving} onClick={() => changeMonth(1)} className="p-2 rounded-full hover:bg-slate-100 transition-colors disabled:opacity-50">
                 <ChevronRightIcon className="w-6 h-6 text-slate-600" />
               </button>
             </div>
 
             <div className="flex items-center gap-4 w-full md:w-auto">
-              <input 
+              <input
                 type="text"
                 placeholder="Buscar alumna..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full md:w-48 px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               />
-               <div className="flex items-center whitespace-nowrap">
+              <div className="flex items-center whitespace-nowrap">
                 <input
                   type="checkbox"
                   id="unpaid-filter"
@@ -123,17 +125,20 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({ students, payments, planCos
         </div>
 
         <div className="bg-blue-50 border-l-4 border-blue-500 text-blue-800 p-4 rounded-r-lg mb-6" role="alert">
-            <div className="flex justify-between items-center flex-wrap gap-4">
-                <p className="font-bold text-lg">Resumen del Mes</p>
-                <div className="text-right">
-                    <p className="text-sm">Recaudado</p>
-                    <p className="text-2xl font-bold">${totalCollected.toLocaleString('es-ES')}</p>
-                </div>
-                <div className="text-right">
-                    <p className="text-sm">Potencial</p>
-                    <p className="text-2xl font-bold">${totalPotential.toLocaleString('es-ES')}</p>
-                </div>
+          <div className="flex justify-between items-center flex-wrap gap-4">
+            <div className="flex items-center gap-3">
+              <p className="font-bold text-lg">Resumen del Mes</p>
+              {isSaving && <span className="text-blue-600 text-xs font-semibold animate-bounce">Actualizando...</span>}
             </div>
+            <div className="text-right">
+              <p className="text-sm">Recaudado</p>
+              <p className="text-2xl font-bold">${totalCollected.toLocaleString('es-ES')}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-sm">Potencial</p>
+              <p className="text-2xl font-bold">${totalPotential.toLocaleString('es-ES')}</p>
+            </div>
+          </div>
         </div>
 
         <div className="max-h-[calc(100vh-370px)] overflow-y-auto">
@@ -160,21 +165,29 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({ students, payments, planCos
                           <p className="text-sm font-semibold text-green-700">Pagado el: {formatDate(paymentDate)}</p>
                         </div>
                       ) : isLate ? (
-                          <div className="flex-grow text-center sm:text-right">
-                              <p className="text-sm font-semibold text-red-700">Pago Atrasado</p>
-                          </div>
+                        <div className="flex-grow text-center sm:text-right">
+                          <p className="text-sm font-semibold text-red-700">Pago Atrasado</p>
+                        </div>
                       ) : (
-                          <div className="flex-grow text-center sm:text-right">
-                            <p className="text-sm text-slate-600">Pendiente de Pago</p>
-                          </div>
+                        <div className="flex-grow text-center sm:text-right">
+                          <p className="text-sm text-slate-600">Pendiente de Pago</p>
+                        </div>
                       )}
-                      
+
                       {isPaid ? (
-                        <button onClick={() => onUndoPayment(student.id, monthYear)} className="px-3 py-1 bg-slate-400 text-white text-xs rounded-md hover:bg-slate-500 w-full sm:w-auto">
-                          Deshacer
+                        <button
+                          onClick={() => onUndoPayment(student.id, monthYear)}
+                          disabled={isSaving}
+                          className="px-3 py-1 bg-slate-400 text-white text-xs rounded-md hover:bg-slate-500 w-full sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isSaving ? '...' : 'Deshacer'}
                         </button>
                       ) : (
-                        <button onClick={() => handleOpenPaymentModal(student)} className="px-3 py-1 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 w-full sm:w-auto">
+                        <button
+                          onClick={() => handleOpenPaymentModal(student)}
+                          disabled={isSaving}
+                          className="px-3 py-1 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 w-full sm:w-auto disabled:bg-blue-300 disabled:cursor-not-allowed"
+                        >
                           Marcar Pago
                         </button>
                       )}
@@ -189,12 +202,13 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({ students, payments, planCos
         </div>
       </div>
       {selectedStudent && (
-          <PaymentDateModal 
-            isOpen={isPaymentModalOpen}
-            onClose={() => setIsPaymentModalOpen(false)}
-            onSave={handleSavePayment}
-            studentName={`${selectedStudent.nombre} ${selectedStudent.apellido}`}
-          />
+        <PaymentDateModal
+          isOpen={isPaymentModalOpen}
+          onClose={() => setIsPaymentModalOpen(false)}
+          onSave={handleSavePayment}
+          studentName={`${selectedStudent.nombre} ${selectedStudent.apellido}`}
+          isSaving={isSaving}
+        />
       )}
     </>
   );

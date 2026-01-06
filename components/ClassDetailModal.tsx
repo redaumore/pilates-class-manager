@@ -15,9 +15,10 @@ interface ClassDetailModalProps {
   onToggleCancel: (classId: string) => void;
   onAddStudent: () => void;
   date?: string;
+  isSaving?: boolean;
 }
 
-const ClassDetailModal: React.FC<ClassDetailModalProps> = ({ isOpen, onClose, classData, allStudents, onUnbook, onUnbookForDay, onToggleCancel, onAddStudent, date }) => {
+const ClassDetailModal: React.FC<ClassDetailModalProps> = ({ isOpen, onClose, classData, allStudents, onUnbook, onUnbookForDay, onToggleCancel, onAddStudent, date, isSaving = false }) => {
   const [isRemoveModalOpen, setRemoveModalOpen] = useState(false);
   const [studentToRemove, setStudentToRemove] = useState<Student | null>(null);
 
@@ -59,6 +60,7 @@ const ClassDetailModal: React.FC<ClassDetailModalProps> = ({ isOpen, onClose, cl
   };
 
   const handleCloseRemoveModal = () => {
+    if (isSaving) return; // Prevent closing while saving
     setStudentToRemove(null);
     setRemoveModalOpen(false);
   };
@@ -67,14 +69,14 @@ const ClassDetailModal: React.FC<ClassDetailModalProps> = ({ isOpen, onClose, cl
     if (studentToRemove && classData && date) {
       onUnbook(studentToRemove.id, classData.id, date);
     }
-    handleCloseRemoveModal();
+    // Don't close immediately, let Dashboard close it or handled by state
   };
 
   const handleRemoveForDay = (withMakeup: boolean) => {
     if (studentToRemove && classData && date) {
       onUnbookForDay(studentToRemove.id, classData.id, date, withMakeup);
     }
-    handleCloseRemoveModal();
+    // Don't close immediately
   };
 
   const hasCapacity = bookedStudents.length < MAX_CAPACITY;
@@ -116,7 +118,8 @@ const ClassDetailModal: React.FC<ClassDetailModalProps> = ({ isOpen, onClose, cl
                         </div>
                         <button
                           onClick={() => handleOpenRemoveModal(student)}
-                          className="p-1 text-red-500 hover:bg-red-100 rounded-full"
+                          disabled={isSaving}
+                          className="p-1 text-red-500 hover:bg-red-100 rounded-full disabled:opacity-30 disabled:cursor-not-allowed"
                           title="Quitar de la clase"
                         >
                           <XCircleIcon className="w-5 h-5" />
@@ -133,7 +136,7 @@ const ClassDetailModal: React.FC<ClassDetailModalProps> = ({ isOpen, onClose, cl
           <div className="pt-4 mt-4 border-t border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-3">
             <button
               onClick={onAddStudent}
-              disabled={!hasCapacity || classData.isCancelled}
+              disabled={!hasCapacity || classData.isCancelled || isSaving}
               className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed transition-colors order-1 sm:order-none"
             >
               <PlusIcon className="w-5 h-5" />
@@ -141,7 +144,8 @@ const ClassDetailModal: React.FC<ClassDetailModalProps> = ({ isOpen, onClose, cl
             </button>
             <button
               onClick={() => onToggleCancel(classData.id)}
-              className={`w-full sm:w-auto px-4 py-2 rounded-lg text-white font-semibold ${classData.isCancelled ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'} order-2 sm:order-none`}
+              disabled={isSaving}
+              className={`w-full sm:w-auto px-4 py-2 rounded-lg text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed ${classData.isCancelled ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'} order-2 sm:order-none`}
             >
               {classData.isCancelled ? 'Reactivar Clase' : 'Cancelar Clase'}
             </button>
@@ -155,6 +159,7 @@ const ClassDetailModal: React.FC<ClassDetailModalProps> = ({ isOpen, onClose, cl
           student={studentToRemove}
           onRemovePermanently={handleRemovePermanently}
           onRemoveForDay={handleRemoveForDay}
+          isSaving={isSaving}
         />
       )}
     </>
