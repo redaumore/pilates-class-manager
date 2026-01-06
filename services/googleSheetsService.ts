@@ -13,9 +13,62 @@ import { generateInitialSchedule, DAY_CODE_MAP, DAY_NAME_TO_CODE } from '../cons
 
 // Email del usuario actual para la identificación en el backend
 let currentUserEmail: string | null = null;
+let currentYear: string = new Date().getFullYear().toString();
 
 export const setUserEmail = (email: string | null) => {
   currentUserEmail = email;
+};
+
+export const setServiceYear = (year: string) => {
+  currentYear = year;
+};
+
+const getSheetName = () => currentYear;
+const getConfigSheetName = () => `${currentYear}-config`;
+const getHolidaysSheetName = () => `${currentYear}-feriados`;
+
+/**
+ * Ensures that the basic sheets for a given year exist with the correct headers.
+ */
+export const ensureYearSheetsExist = async (year: string) => {
+  try {
+    const meta = await callRpc('getSpreadsheetMeta');
+    const existingSheets = meta.sheets.map((s: any) => s.properties.title);
+
+    // 1. Master Sheet (YYYY)
+    if (!existingSheets.includes(year)) {
+      console.log(`Creating master sheet for year ${year}...`);
+      await callRpc('createSheet', { title: year });
+      const headers = [
+        'ID', 'NOMBRE', 'APELLIDO', 'TELEFONO', 'ESTADO', 'NIVEL', 'PLAN',
+        'CLASE 1', 'CLASE 2', 'CLASE 3', 'INGRESO',
+        'ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC',
+        'RECUPERAR'
+      ];
+      await callRpc('updateSheet', { range: `'${year}'!A1`, values: [headers] });
+    }
+
+    // 2. Config Sheet (YYYY-config)
+    const configName = `${year}-config`;
+    if (!existingSheets.includes(configName)) {
+      console.log(`Creating config sheet for year ${year}...`);
+      await callRpc('createSheet', { title: configName });
+      const headers = ['Plan', 'Cuota', 'Estado', 'Modificado'];
+      await callRpc('updateSheet', { range: `'${configName}'!A1`, values: [headers] });
+    }
+
+    // 3. Holidays Sheet (YYYY-feriados)
+    const holidaysName = `${year}-feriados`;
+    if (!existingSheets.includes(holidaysName)) {
+      console.log(`Creating holidays sheet for year ${year}...`);
+      await callRpc('createSheet', { title: holidaysName });
+      const headers = ['ID', 'StartDate', 'EndDate', 'Description'];
+      await callRpc('updateSheet', { range: `'${holidaysName}'!A1`, values: [headers] });
+    }
+  } catch (err) {
+    console.error(`Error ensuring sheets exist for year ${year}:`, err);
+    throw err;
+  }
 };
 
 // Helper para llamar al backend
@@ -108,19 +161,23 @@ const formatDate = (dateStr: string): string => {
 };
 
 
-// Constants (redifine spreadsheet constants if needed, but ID is now in backend)
-const SHEET_NAME = '2025';
-const CONFIG_SHEET_NAME = '2025-config';
-const HOLIDAYS_SHEET_NAME = '2025-feriados';
+// Constants removed - using dynamic getters getSheetName(), etc.
 
 // Función para leer datos usando el backend
-export const loadDataFromSheet = async (): Promise<{
+export const loadDataFromSheet = async (year?: string): Promise<{
   students: Student[];
   schedule: Schedule;
   payments: PaymentRecord;
 }> => {
+  if (year) {
+    setServiceYear(year);
+  }
+
+  // Ensure the sheets exist for the current year
+  await ensureYearSheetsExist(currentYear);
+
   try {
-    const response = await callRpc('loadDataFromSheet');
+    const response = await callRpc('loadDataFromSheet', { year: currentYear });
     const rows: string[][] = response.values;
 
     if (!rows || rows.length < 2) {
@@ -166,7 +223,7 @@ export const loadDataFromSheet = async (): Promise<{
       for (const monthAbbr in MONTH_MAP) {
         const paymentDate = getVal(monthAbbr);
         if (paymentDate) {
-          const monthYear = `${SHEET_NAME}-${MONTH_MAP[monthAbbr]}`;
+          const monthYear = `${getSheetName()}-${MONTH_MAP[monthAbbr]}`;
           payments[studentId][monthYear] = parseDate(paymentDate);
         }
       }
@@ -197,13 +254,16 @@ export const loadDataFromSheet = async (): Promise<{
     }
 
     // Load absences from monthly sheet
-    const currentDate = new Date();
-    const monthYear = `${currentDate.getFullYear()}-${String(
-      currentDate.getMonth() + 1
-    ).padStart(2, '0')}`;
+    const now = new Date();
+    const currentMonthStr = String(now.getMonth() + 1).padStart(2, '0');
+    // If we are loading the "current" year according to system, use current month.
+    // Otherwise, maybe use January or the first month of that year?
+    // For now, let's use the current month if years match, otherwise January of that year.
+    const monthToLoad = (now.getFullYear().toString() === currentYear) ? currentMonthStr : '01';
+    const monthYear = `${currentYear}-${monthToLoad}`;
 
     try {
-      const monthlyResponse = await callRpc('getSheetValues', { range: `${monthYear}!A:G` });
+      const monthlyResponse = await callRpc('getSheetValues', { range: `'${monthYear}'!A:G` });
 
       const monthlyRows = monthlyResponse.values;
 
@@ -274,7 +334,7 @@ export const updateSheet = async (range: string, values: string[][]) => {
 export const saveStudentToSheet = async (student: Student) => {
   // Lógica para convertir student a filas y actualizar la planilla
   // Por ejemplo, encontrar la fila del estudiante y actualizar
-  const range = `${SHEET_NAME}!A2:Z`; // Ajusta según la estructura
+  const range = `'${getSheetName()}'!A2:Z`; // Ajusta según la estructura
   const values = [
     [student.id, student.nombre, student.apellido /* ... otros campos */],
   ];
@@ -300,7 +360,7 @@ export const updateMonthlySheet = async (
     }
 
     // Check if the sheet has data (more than just headers)
-    const checkResponse = await callRpc('getSheetValues', { range: `${monthYear}!A:A` });
+    const checkResponse = await callRpc('getSheetValues', { range: `'${monthYear}'!A:A` });
     const hasData =
       checkResponse.values && checkResponse.values.length > 1;
 
@@ -385,8 +445,8 @@ export const updateMonthlySheet = async (
     }
 
     // Clear the sheet and write new data
-    await callRpc('clearSheet', { range: `${monthYear}!A:Z` });
-    await callRpc('updateSheet', { range: `${monthYear}!A1`, values: data });
+    await callRpc('clearSheet', { range: `'${monthYear}'!A:Z` });
+    await callRpc('updateSheet', { range: `'${monthYear}'!A1`, values: data });
 
     console.log(`Hoja ${monthYear} inicializada correctamente`);
   } catch (err: any) {
@@ -404,7 +464,7 @@ export const assignStudentToClassRecurring = async (
   monthYear: string
 ) => {
   try {
-    // 1. Update '2025' Sheet (Master Sheet)
+    // 1. Update Master Sheet (Master Sheet)
     const response = await callRpc('loadDataFromSheet'); // Reuse load logic or specific getValues
 
     const rows = response.values;
@@ -451,7 +511,7 @@ export const assignStudentToClassRecurring = async (
     if (targetColIndex === -1)
       throw new Error('El estudiante ya tiene 3 clases asignadas');
 
-    // Update the cell in '2025' sheet
+    // Update the cell in Master sheet
     const getColumnLetter = (index: number) => {
       let letter = '';
       while (index >= 0) {
@@ -462,11 +522,11 @@ export const assignStudentToClassRecurring = async (
     };
 
     const colLetter = getColumnLetter(targetColIndex);
-    const range = `${SHEET_NAME}!${colLetter}${rowIndex}`;
+    const range = `'${getSheetName()}'!${colLetter}${rowIndex}`;
 
     await callRpc('updateSheet', { range, values: [[classId]] });
 
-    // 2. Update Monthly Sheet (e.g., '2025-11')
+    // 2. Update Monthly Sheet (e.g., 'YYYY-MM')
     // Calculate dates for the rest of the month for this class day
     const dayChar = classId.charAt(0); // 'L', 'M', etc.
     const dayName = DAY_CODE_MAP[dayChar];
@@ -524,7 +584,7 @@ export const assignStudentToClassRecurring = async (
       }
 
       if (newRows.length > 0) {
-        await callRpc('appendSheet', { range: `${monthYear}!A:G`, values: newRows });
+        await callRpc('appendSheet', { range: `'${monthYear}'!A:G`, values: newRows });
       }
     }
 
@@ -541,7 +601,7 @@ export const removeStudentFromClassRecurring = async (
   monthYear: string
 ) => {
   try {
-    // 1. Update '2025' Sheet (Master Sheet)
+    // 1. Update Master Sheet (Master Sheet)
     const response = await callRpc('loadDataFromSheet');
 
     const rows = response.values;
@@ -577,7 +637,7 @@ export const removeStudentFromClassRecurring = async (
     if (targetColIndex === -1)
       throw new Error('El estudiante no tiene asignada esta clase');
 
-    // Clear the cell in '2025' sheet
+    // Clear the cell in Master sheet
     const getColumnLetter = (index: number) => {
       let letter = '';
       while (index >= 0) {
@@ -588,11 +648,11 @@ export const removeStudentFromClassRecurring = async (
     };
 
     const colLetter = getColumnLetter(targetColIndex);
-    const range = `${SHEET_NAME}!${colLetter}${rowIndex}`;
+    const range = `'${getSheetName()}'!${colLetter}${rowIndex}`;
 
     await callRpc('updateSheet', { range, values: [['']] });
 
-    // 2. Update Monthly Sheet (e.g., '2025-11')
+    // 2. Update Monthly Sheet (e.g., 'YYYY-MM')
     // Remove future occurrences
     const meta = await callRpc('getSpreadsheetMeta');
     const sheetExists = meta.sheets.some(
@@ -600,7 +660,7 @@ export const removeStudentFromClassRecurring = async (
     );
 
     if (sheetExists) {
-      const monthlyResponse = await callRpc('getSheetValues', { range: `${monthYear}!A:G` });
+      const monthlyResponse = await callRpc('getSheetValues', { range: `'${monthYear}'!A:G` });
 
       const monthlyRows = monthlyResponse.values;
       if (monthlyRows && monthlyRows.length > 1) {
@@ -672,7 +732,7 @@ export const updatePaymentStatus = async (
     const header = rows[0].map((h: string) => h.trim());
     const idIndex = header.indexOf('ID');
 
-    // Extract month from monthYear (e.g., "2025-01")
+    // Extract month from monthYear (e.g., "YYYY-MM")
     const monthNum = monthYear.split('-')[1]; // "01"
 
     // Reverse MONTH_MAP to find column name
@@ -707,7 +767,7 @@ export const updatePaymentStatus = async (
     };
 
     const colLetter = getColumnLetter(monthIndex);
-    const range = `${SHEET_NAME}!${colLetter}${rowIndex}`;
+    const range = `'${getSheetName()}'!${colLetter}${rowIndex}`;
 
     // Format date to DD-MM-YYYY if it's not empty
     let valueToSave = '';
@@ -803,7 +863,7 @@ export const registerStudentAbsence = async (
       values: [[newStatus]]
     });
 
-    // 3. If withMakeup, update '2025' sheet
+    // 3. If withMakeup, update Master sheet
     if (withMakeup) {
       const mainSheetResponse = await callRpc('loadDataFromSheet');
 
@@ -823,7 +883,7 @@ export const registerStudentAbsence = async (
             const recuperarColLetter = getColumnLetter(recuperarIndex);
 
             await callRpc('updateSheet', {
-              range: `${SHEET_NAME}!${recuperarColLetter}${i + 1}`,
+              range: `'${getSheetName()}'!${recuperarColLetter}${i + 1}`,
               values: [[newRecupero]]
             });
             break;
@@ -843,7 +903,7 @@ export const assignStudentToClassSingleDay = async (
   date: string
 ) => {
   try {
-    // 1. Decrement RECUPERAR in '2025' sheet
+    // 1. Decrement RECUPERAR in Master sheet
     const mainSheetResponse = await callRpc('loadDataFromSheet');
 
     const mainRows = mainSheetResponse.values;
@@ -883,7 +943,7 @@ export const assignStudentToClassSingleDay = async (
 
     const recuperarColLetter = getColumnLetter(recuperarIndex);
     await callRpc('updateSheet', {
-      range: `${SHEET_NAME}!${recuperarColLetter}${studentRowIndex}`,
+      range: `'${getSheetName()}'!${recuperarColLetter}${studentRowIndex}`,
       values: [[currentRecupero - 1]]
     });
 
@@ -930,14 +990,14 @@ export const loadPlanCosts = async (): Promise<PlanCosts | null> => {
     const meta = await callRpc('getSpreadsheetMeta');
 
     const sheetExists = meta.sheets.some(
-      (sheet: any) => sheet.properties.title === CONFIG_SHEET_NAME
+      (sheet: any) => sheet.properties.title === getConfigSheetName()
     );
 
     if (!sheetExists) {
       return null; // Return null to use defaults
     }
 
-    const response = await callRpc('getSheetValues', { range: `${CONFIG_SHEET_NAME}!A:D` });
+    const response = await callRpc('getSheetValues', { range: `'${getConfigSheetName()}'!A:D` });
 
     const rows = response.values;
     if (!rows || rows.length < 2) return null;
@@ -978,20 +1038,20 @@ export const savePlanCosts = async (newCosts: PlanCosts) => {
     const meta = await callRpc('getSpreadsheetMeta');
 
     let sheetExists = meta.sheets.some(
-      (sheet: any) => sheet.properties.title === CONFIG_SHEET_NAME
+      (sheet: any) => sheet.properties.title === getConfigSheetName()
     );
 
     if (!sheetExists) {
-      await callRpc('createSheet', { title: CONFIG_SHEET_NAME });
+      await callRpc('createSheet', { title: getConfigSheetName() });
       // Add header
       await callRpc('updateSheet', {
-        range: `${CONFIG_SHEET_NAME}!A1`,
+        range: `'${getConfigSheetName()}'!A1`,
         values: [['Plan', 'Cuota', 'Estado', 'Modificado']]
       });
     }
 
     // 2. Mark current "Vigente" as "Inactivo"
-    const response = await callRpc('getSheetValues', { range: `${CONFIG_SHEET_NAME}!A:D` });
+    const response = await callRpc('getSheetValues', { range: `'${getConfigSheetName()}'!A:D` });
 
     const rows = response.values;
     if (rows && rows.length > 1) {
@@ -1007,7 +1067,7 @@ export const savePlanCosts = async (newCosts: PlanCosts) => {
             // i + 1 is the row number
             const colLetter = String.fromCharCode(65 + estadoIndex); // Assuming < 26 columns
             updates.push({
-              range: `${CONFIG_SHEET_NAME}!${colLetter}${i + 1}`,
+              range: `'${getConfigSheetName()}'!${colLetter}${i + 1}`,
               values: [['Inactivo']]
             });
           }
@@ -1032,7 +1092,7 @@ export const savePlanCosts = async (newCosts: PlanCosts) => {
     ]);
 
     await callRpc('appendSheet', {
-      range: `${CONFIG_SHEET_NAME}!A:D`,
+      range: `'${getConfigSheetName()}'!A:D`,
       values: newRows
     });
 
@@ -1171,7 +1231,7 @@ export const createStudent = async (student: Student): Promise<Student> => {
 
     // 5. Append the new row to the sheet
     await callRpc('appendSheet', {
-      range: `${SHEET_NAME}!A:Z`,
+      range: `'${getSheetName()}'!A:Z`,
       values: [newRow]
     });
 
@@ -1248,37 +1308,37 @@ export const updateStudent = async (student: Student): Promise<void> => {
     // Update each field
     if (nombreIndex !== -1) {
       updates.push({
-        range: `${SHEET_NAME}!${getColumnLetter(nombreIndex)}${rowIndex}`,
+        range: `'${getSheetName()}'!${getColumnLetter(nombreIndex)}${rowIndex}`,
         values: [[student.nombre]],
       });
     }
     if (apellidoIndex !== -1) {
       updates.push({
-        range: `${SHEET_NAME}!${getColumnLetter(apellidoIndex)}${rowIndex}`,
+        range: `'${getSheetName()}'!${getColumnLetter(apellidoIndex)}${rowIndex}`,
         values: [[student.apellido]],
       });
     }
     if (telefonoIndex !== -1) {
       updates.push({
-        range: `${SHEET_NAME}!${getColumnLetter(telefonoIndex)}${rowIndex}`,
+        range: `'${getSheetName()}'!${getColumnLetter(telefonoIndex)}${rowIndex}`,
         values: [[phoneForSheet]],
       });
     }
     if (nivelIndex !== -1) {
       updates.push({
-        range: `${SHEET_NAME}!${getColumnLetter(nivelIndex)}${rowIndex}`,
+        range: `'${getSheetName()}'!${getColumnLetter(nivelIndex)}${rowIndex}`,
         values: [[levelCode]],
       });
     }
     if (planIndex !== -1) {
       updates.push({
-        range: `${SHEET_NAME}!${getColumnLetter(planIndex)}${rowIndex}`,
+        range: `'${getSheetName()}'!${getColumnLetter(planIndex)}${rowIndex}`,
         values: [[student.plan.toString()]],
       });
     }
     if (recuperarIndex !== -1) {
       updates.push({
-        range: `${SHEET_NAME}!${getColumnLetter(recuperarIndex)}${rowIndex}`,
+        range: `'${getSheetName()}'!${getColumnLetter(recuperarIndex)}${rowIndex}`,
         values: [[(student.clases_recuperacion || 0).toString()]],
       });
     }
@@ -1343,7 +1403,7 @@ export const deleteStudent = async (studentId: string): Promise<void> => {
     };
 
     const colLetter = getColumnLetter(estadoIndex);
-    const range = `${SHEET_NAME}!${colLetter}${rowIndex}`;
+    const range = `'${getSheetName()}'!${colLetter}${rowIndex}`;
 
     await callRpc('updateSheet', {
       range: range,
@@ -1363,15 +1423,15 @@ const ensureHolidaysSheetExists = async () => {
   try {
     const meta = await callRpc('getSpreadsheetMeta');
     const sheetExists = meta.sheets.some(
-      (sheet: any) => sheet.properties.title === HOLIDAYS_SHEET_NAME
+      (sheet: any) => sheet.properties.title === getHolidaysSheetName()
     );
 
     if (!sheetExists) {
-      await callRpc('createSheet', { title: HOLIDAYS_SHEET_NAME });
+      await callRpc('createSheet', { title: getHolidaysSheetName() });
 
       // Add header
       await callRpc('updateSheet', {
-        range: `${HOLIDAYS_SHEET_NAME}!A1:D1`,
+        range: `'${getHolidaysSheetName()}'!A1:D1`,
         values: [['ID', 'StartDate', 'EndDate', 'Description']],
       });
     }
@@ -1385,7 +1445,7 @@ export const loadNonWorkingDays = async (): Promise<NonWorkingDay[]> => {
   try {
     await ensureHolidaysSheetExists();
 
-    const response = await callRpc('getSheetValues', { range: `${HOLIDAYS_SHEET_NAME}!A:D` });
+    const response = await callRpc('getSheetValues', { range: `'${getHolidaysSheetName()}'!A:D` });
 
     const rows = response.values;
     if (!rows || rows.length < 2) return [];
@@ -1411,7 +1471,7 @@ export const addNonWorkingDay = async (day: Omit<NonWorkingDay, 'id'>): Promise<
     const newRow = [newId, day.startDate, day.endDate, day.description];
 
     await callRpc('appendSheet', {
-      range: `${HOLIDAYS_SHEET_NAME}!A:D`,
+      range: `'${getHolidaysSheetName()}'!A:D`,
       values: [newRow]
     });
 
@@ -1433,7 +1493,7 @@ const getSheetIdByName = async (sheetName: string): Promise<number> => {
 
 export const deleteNonWorkingDay = async (id: string): Promise<void> => {
   try {
-    const response = await callRpc('getSheetValues', { range: `${HOLIDAYS_SHEET_NAME}!A:A` });
+    const response = await callRpc('getSheetValues', { range: `'${getHolidaysSheetName()}'!A:A` });
 
     const rows = response.values;
     if (!rows) return;
@@ -1451,7 +1511,7 @@ export const deleteNonWorkingDay = async (id: string): Promise<void> => {
     // Here I'll call it.
 
     await callRpc('deleteRow', {
-      sheetId: await getSheetIdByName(HOLIDAYS_SHEET_NAME),
+      sheetId: await getSheetIdByName(getHolidaysSheetName()),
       rowIndex: rowIndex,
       endRowIndex: rowIndex + 1
     });
@@ -1464,7 +1524,7 @@ export const deleteNonWorkingDay = async (id: string): Promise<void> => {
 
 export const removeStudentFromAllFutureClasses = async (studentId: string) => {
   try {
-    // 1. Clear CLASE 1, CLASE 2, CLASE 3 in '2025' sheet
+    // 1. Clear CLASE 1, CLASE 2, CLASE 3 in Master sheet
     const response = await callRpc('loadDataFromSheet');
     const rows = response.values;
     if (!rows || rows.length < 2) throw new Error('No se encontraron datos en la hoja de alumnos');
@@ -1496,9 +1556,9 @@ export const removeStudentFromAllFutureClasses = async (studentId: string) => {
     if (rowIndex !== -1) {
       const updates = [];
 
-      if (clase1Index !== -1) updates.push({ range: `${SHEET_NAME}!${getColumnLetter(clase1Index)}${rowIndex}`, values: [['']] });
-      if (clase2Index !== -1) updates.push({ range: `${SHEET_NAME}!${getColumnLetter(clase2Index)}${rowIndex}`, values: [['']] });
-      if (clase3Index !== -1) updates.push({ range: `${SHEET_NAME}!${getColumnLetter(clase3Index)}${rowIndex}`, values: [['']] });
+      if (clase1Index !== -1) updates.push({ range: `'${getSheetName()}'!${getColumnLetter(clase1Index)}${rowIndex}`, values: [['']] });
+      if (clase2Index !== -1) updates.push({ range: `'${getSheetName()}'!${getColumnLetter(clase2Index)}${rowIndex}`, values: [['']] });
+      if (clase3Index !== -1) updates.push({ range: `'${getSheetName()}'!${getColumnLetter(clase3Index)}${rowIndex}`, values: [['']] });
 
       if (updates.length > 0) {
         // We'll execute updates sequentially as our updateSheet is one by one, 

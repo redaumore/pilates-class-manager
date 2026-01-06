@@ -38,22 +38,27 @@ const getAuthClient = () => {
     });
 };
 
+
 const USER_SPREADSHEET_MAP: Record<string, string> = {
-    // This uses the environment variable or falls back to the hardcoded ID
-    'default': process.env.GOOGLE_SPREADSHEET_ID || '1onA2BHky-848DFSbaeTa_Qw-r8ZwpZ9nJteIn8-d1cc',
+    // Add specific mappings here
+    'redaumore@gmail.com': '108MJXvIRSg_uXCAt4nJT0V0f96diOjaxrmqxqlq4iIM',
+    'rolando.daumas@gmail.com': '1onA2BHky-848DFSbaeTa_Qw-r8ZwpZ9nJteIn8-d1cc',
 };
 
 const getSpreadsheetId = (userEmail?: string) => {
-    // Priority: 1. Environment Variable (global override), 2. User Map, 3. Default
+    // Priority: 1. User Map, 2. Environment Variable (global default), 3. Hardcoded Default
+
+    if (userEmail && USER_SPREADSHEET_MAP[userEmail]) {
+        console.log(`Using specific spreadsheet for user: ${userEmail}`);
+        return USER_SPREADSHEET_MAP[userEmail];
+    }
+
     if (process.env.GOOGLE_SPREADSHEET_ID) {
         return process.env.GOOGLE_SPREADSHEET_ID;
     }
 
-    if (userEmail && USER_SPREADSHEET_MAP[userEmail]) {
-        return USER_SPREADSHEET_MAP[userEmail];
-    }
-    // Fallback or error
-    return USER_SPREADSHEET_MAP['default'];
+    // Fallback
+    return '1onA2BHky-848DFSbaeTa_Qw-r8ZwpZ9nJteIn8-d1cc';
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -70,16 +75,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         switch (action) {
             case 'loadDataFromSheet':
                 // Implementation mirroring the frontend logic but server-side
-                const sheetName = '2025';
-                const range = `${sheetName}!A:Z`;
-                const response = await sheets.spreadsheets.values.get({
-                    spreadsheetId,
-                    range,
-                });
-
-                // TODO: We might want to parse it here or send raw data back to frontend
-                // For minimal refactor, let's send values back and let frontend parse
-                return res.status(200).json({ values: response.data.values });
+                const { year: loadYear } = payload || {};
+                const currentYear = new Date().getFullYear().toString();
+                const sheetName = loadYear || currentYear;
+                const range = `'${sheetName}'!A:Z`;
+                try {
+                    const response = await sheets.spreadsheets.values.get({
+                        spreadsheetId,
+                        range,
+                    });
+                    return res.status(200).json({ values: response.data.values });
+                } catch (error: any) {
+                    if (error.message?.includes('Unable to parse range')) {
+                        const meta = await sheets.spreadsheets.get({ spreadsheetId });
+                        const sheetNames = meta.data.sheets?.map(s => s.properties?.title) || [];
+                        throw new Error(`No se encontró la hoja "${sheetName}". Hojas disponibles: ${sheetNames.join(', ')}`);
+                    }
+                    throw error;
+                }
 
             case 'updateSheet':
                 // General update proxy
@@ -112,17 +125,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
             case 'createSheet':
                 const { title } = payload;
-                // Check existing handled in logic or here? 
-                // Better to just do the operation requested
-                await sheets.spreadsheets.batchUpdate({
-                    spreadsheetId,
-                    requestBody: {
-                        requests: [{
-                            addSheet: { properties: { title } }
-                        }]
-                    }
-                });
-                return res.status(200).json({ success: true });
+                const metaForCreate = await sheets.spreadsheets.get({ spreadsheetId });
+                const exists = metaForCreate.data.sheets?.some(s => s.properties?.title === title);
+
+                if (!exists) {
+                    await sheets.spreadsheets.batchUpdate({
+                        spreadsheetId,
+                        requestBody: {
+                            requests: [{
+                                addSheet: { properties: { title } }
+                            }]
+                        }
+                    });
+                }
+                return res.status(200).json({ success: true, alreadyExists: !!exists });
 
             case 'getSpreadsheetMeta':
                 const meta = await sheets.spreadsheets.get({ spreadsheetId });

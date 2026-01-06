@@ -57,31 +57,30 @@ const Dashboard: React.FC = () => {
     const [selectedDate, setSelectedDate] = useState<string | undefined>(undefined);
     const [currentView, setCurrentView] = useState<View>('schedule');
     const [currentWeek, setCurrentWeek] = useState(new Date());
+    const [activeYear, setActiveYear] = useState(new Date().getFullYear().toString());
 
     const { user, isLoaded } = useUser();
 
     useEffect(() => {
-        const initData = async () => {
-            if (isLoaded && user && user.primaryEmailAddress) {
-                setUserEmail(user.primaryEmailAddress.emailAddress);
-                await fetchData();
-            }
-        };
-        initData();
-    }, [isLoaded, user]);
+        if (isLoaded && user && user.primaryEmailAddress) {
+            setUserEmail(user.primaryEmailAddress.emailAddress);
+            fetchData(activeYear);
+        }
+    }, [isLoaded, user, activeYear]);
 
-    const fetchData = async () => {
+    const fetchData = async (year: string) => {
         setLoading(true);
         setError(null);
         try {
-            const { students, schedule, payments } = await loadDataFromSheet();
+            const { students, schedule, payments } = await loadDataFromSheet(year);
             setStudents(students);
             setSchedule(schedule);
             setPayments(payments);
 
             // Update the monthly sheet
-            const currentDate = new Date();
-            const monthYear = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+            const now = new Date();
+            const monthToUse = (now.getFullYear().toString() === year) ? String(now.getMonth() + 1).padStart(2, '0') : '01';
+            const monthYear = `${year}-${monthToUse}`;
             await updateMonthlySheet(schedule, students, monthYear);
 
             // Load plan costs
@@ -107,6 +106,11 @@ const Dashboard: React.FC = () => {
             const newDate = new Date(prev);
             const dayIncrement = direction === 'next' ? 7 : -7;
             newDate.setDate(newDate.getDate() + dayIncrement);
+
+            if (newDate.getFullYear().toString() !== activeYear) {
+                setActiveYear(newDate.getFullYear().toString());
+            }
+
             return newDate;
         });
     };
@@ -220,8 +224,7 @@ const Dashboard: React.FC = () => {
 
     const handleUnbookStudentPermanently = async (studentId: string, classId: string, date: string) => {
         try {
-            const currentDate = new Date();
-            const monthYear = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+            const monthYear = date.substring(0, 7);
             await removeStudentFromClassRecurring(studentId, classId, monthYear);
 
             setSchedule(prevSchedule => {
@@ -337,8 +340,7 @@ const Dashboard: React.FC = () => {
 
     const handleAssignStudentPermanently = async (studentId: string, classId: string, startDate: string) => {
         try {
-            const currentDate = new Date();
-            const monthYear = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+            const monthYear = startDate.substring(0, 7);
             await assignStudentToClassRecurring(studentId, classId, monthYear);
 
             let classToUpdate: Class | null = null;
@@ -516,6 +518,7 @@ const Dashboard: React.FC = () => {
                     students={students}
                     onClassClick={handleClassClick}
                     nonWorkingDays={nonWorkingDays}
+                    onYearChange={setActiveYear}
                 />;
             case 'students':
                 return <StudentManagementPage

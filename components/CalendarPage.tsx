@@ -19,6 +19,7 @@ interface CalendarPageProps {
   students: Student[];
   onClassClick: (classData: Class, date: string) => void;
   nonWorkingDays: NonWorkingDay[];
+  onYearChange?: (year: string) => void;
 }
 
 const isDateNonWorking = (date: Date, holidays: NonWorkingDay[]): NonWorkingDay | undefined => {
@@ -28,7 +29,7 @@ const isDateNonWorking = (date: Date, holidays: NonWorkingDay[]): NonWorkingDay 
   });
 };
 
-const CalendarPage: React.FC<CalendarPageProps> = ({ schedule, students, onClassClick, nonWorkingDays }) => {
+const CalendarPage: React.FC<CalendarPageProps> = ({ schedule, students, onClassClick, nonWorkingDays, onYearChange }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
 
   const changeMonth = (amount: number) => {
@@ -36,6 +37,11 @@ const CalendarPage: React.FC<CalendarPageProps> = ({ schedule, students, onClass
       const newDate = new Date(prev);
       newDate.setDate(1); // Avoid month skipping issues
       newDate.setMonth(newDate.getMonth() + amount);
+
+      if (onYearChange && newDate.getFullYear() !== prev.getFullYear()) {
+        onYearChange(newDate.getFullYear().toString());
+      }
+
       return newDate;
     });
   };

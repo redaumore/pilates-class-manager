@@ -67,7 +67,7 @@ const LandingPage: React.FC = () => {
             </main>
 
             <footer className="p-6 text-center text-slate-400 text-sm">
-                © 2025 Pilates Class Manager. Todos los derechos reservados.
+                © {new Date().getFullYear()} Pilates Class Manager. Todos los derechos reservados.
             </footer>
         </div>
     );

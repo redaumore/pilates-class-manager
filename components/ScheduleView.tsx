@@ -132,6 +132,7 @@ interface ScheduleViewProps {
   currentWeek: Date;
   onWeekChange: (direction: 'next' | 'prev') => void;
   nonWorkingDays: NonWorkingDay[];
+  onYearChange?: (year: string) => void;
 }
 
 const isDateNonWorking = (date: Date, holidays: NonWorkingDay[]): NonWorkingDay | undefined => {
