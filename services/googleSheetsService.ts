@@ -1159,13 +1159,18 @@ export const savePlanCosts = async (newCosts: PlanCosts) => {
       const estadoIndex = header.indexOf('Estado');
 
       if (estadoIndex !== -1) {
-        // Find all rows that are 'Vigente'
+        const planIndex = header.indexOf('Plan');
+        if (planIndex === -1) return;
+
+        // Find all rows that are 'Vigente' AND are actual plan costs (1, 2, 3)
         const updates = [];
+        const planNamesArr = Object.keys(newCosts);
+
         for (let i = 1; i < rows.length; i++) {
-          if (rows[i][estadoIndex] === 'Vigente') {
+          const rowPlan = rows[i][planIndex];
+          if (rows[i][estadoIndex] === 'Vigente' && planNamesArr.includes(rowPlan)) {
             // We need to update this cell to 'Inactivo'
-            // i + 1 is the row number
-            const colLetter = String.fromCharCode(65 + estadoIndex); // Assuming < 26 columns
+            const colLetter = String.fromCharCode(65 + estadoIndex);
             updates.push({
               range: `'${getConfigSheetName()}'!${colLetter}${i + 1}`,
               values: [['Inactivo']]
