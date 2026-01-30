@@ -6,6 +6,12 @@ export enum Level {
 
 export type Plan = 1 | 2 | 3;
 
+export enum StudentStatus {
+  Active = 'OK',
+  Suspended = 'Suspendida',
+  Deleted = 'BORRADA',
+}
+
 export interface Student {
   id: string;
   nombre: string;
@@ -15,6 +21,7 @@ export interface Student {
   fecha_inscripcion: string;
   plan: Plan;
   clases_recuperacion: number;
+  estado: StudentStatus;
 }
 
 export interface Booking {

@@ -9,6 +9,7 @@ import {
   PlanCosts,
   NonWorkingDay,
   ScheduleConfig,
+  StudentStatus,
 } from '../types';
 import { generateInitialSchedule, DAY_CODE_MAP, DAY_NAME_TO_CODE } from '../constants';
 
@@ -213,7 +214,8 @@ export const loadDataFromSheet = async (year?: string): Promise<{
       const row = rows[i];
       const getVal = (colName: string) => row[headerMap[colName]]?.trim() || '';
 
-      if (getVal('ESTADO') !== 'OK') continue;
+      const estadoStr = getVal('ESTADO');
+      if (estadoStr === StudentStatus.Deleted) continue;
 
       const studentId = getVal('ID');
       if (!studentId) continue;
@@ -227,6 +229,7 @@ export const loadDataFromSheet = async (year?: string): Promise<{
         fecha_inscripcion: parseDate(getVal('INGRESO')),
         plan: (parseInt(getVal('PLAN'), 10) as Plan) || 1,
         clases_recuperacion: parseInt(getVal('RECUPERAR'), 10) || 0,
+        estado: (estadoStr as StudentStatus) || StudentStatus.Active,
       };
       students.push(student);
 
@@ -371,20 +374,19 @@ export const updateMonthlySheet = async (
       await callRpc('createSheet', { title: monthYear });
     }
 
-    // Check if the sheet has data (more than just headers)
-    const checkResponse = await callRpc('getSheetValues', { range: `'${monthYear}'!A:A` });
-    const hasData =
-      checkResponse.values && checkResponse.values.length > 1;
+    // Check existing data
+    const checkResponse = await callRpc('getSheetValues', { range: `'${monthYear}'!A:G` });
+    const existingRows = checkResponse.values || [];
 
-    // If the sheet already has records, do not update it
-    if (hasData) {
-      console.log(`Hoja ${monthYear} ya tiene registros, no se actualiza`);
+    // If it has many rows, assume it's already initialized
+    const hasFixedAssignments = existingRows.some((row: string[]) => row[3] === AssignmentType.FIJA);
+    if (hasFixedAssignments && existingRows.length > 20) {
+      console.log(`Hoja ${monthYear} ya está inicializada con clases fijas.`);
       return;
     }
 
-    const data: string[][] = [];
-    // Header with new structure
-    data.push([
+    // Prepare data for initialization
+    const header = [
       'FECHA',
       'CLASE_ID',
       'ALUMNA_ID',
@@ -392,12 +394,20 @@ export const updateMonthlySheet = async (
       'ESTADO',
       'TIMESTAMP',
       'NOTAS',
-    ]);
+    ];
 
     const now = new Date().toLocaleString('sv-SE', { timeZone: 'Etc/GMT+3' });
     const year = parseInt(monthYear.split('-')[0]);
     const month = parseInt(monthYear.split('-')[1]) - 1; // 0-based
     const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    const newRows: string[][] = [];
+
+    // Keep existing rows that are NOT 'FIJA' (e.g., RECUPERO added manually)
+    const nonFixedRows = existingRows.filter((row: string[], idx: number) => {
+      if (idx === 0) return false; // Skip old header
+      return row[3] !== AssignmentType.FIJA;
+    });
 
     for (let day = 1; day <= daysInMonth; day++) {
       const date = new Date(year, month, day);
@@ -412,7 +422,6 @@ export const updateMonthlySheet = async (
       }
 
       if (shouldInclude) {
-        // Classes for this day
         const dayName = dayIndexToName[dayOfWeek];
         const classes = schedule[dayName] || [];
         for (const classData of classes) {
@@ -424,52 +433,45 @@ export const updateMonthlySheet = async (
               .map((b) => b.studentId)
           );
 
-          // Note: We are initializing so we assume no one-time bookings or absences exist yet
-          const oneTimeStudentIds = new Set(
-            (classData.oneTimeBookings ?? [])
-              .filter((b) => b.date === dateStringISO)
-              .map((b) => b.studentId)
-          );
-
           const classId = `${DAY_NAME_TO_CODE[dayName]}${classData.time}`;
 
-          // For permanent students
           for (const studentId of permanentStudentIds) {
-            const isAbsent = (classData.absences ?? []).some(a => a.studentId === studentId && a.date === dateStringISO);
-            const estado = isAbsent ? AttendanceStatus.CANCELADA_AVISO : AttendanceStatus.PROGRAMADA;
+            // Only add if not already present in nonFixedRows (redundant but safe)
+            const alreadyExists = nonFixedRows.some(r => r[0] === dateStringISO && r[1] === classId && r[2] === studentId);
+            if (!alreadyExists) {
+              const isAbsent = (classData.absences ?? []).some(a => a.studentId === studentId && a.date === dateStringISO);
+              const estado = isAbsent ? AttendanceStatus.CANCELADA_AVISO : AttendanceStatus.PROGRAMADA;
 
-            data.push([
-              dateStringISO,
-              classId,
-              studentId,
-              AssignmentType.FIJA,
-              estado,
-              now,
-              '',
-            ]);
-          }
-
-          // For one-time students
-          for (const studentId of oneTimeStudentIds) {
-            data.push([
-              dateStringISO,
-              classId,
-              studentId,
-              AssignmentType.RECUPERO,
-              AttendanceStatus.PROGRAMADA,
-              now,
-              '',
-            ]);
+              newRows.push([
+                dateStringISO,
+                classId,
+                studentId,
+                AssignmentType.FIJA,
+                estado,
+                now,
+                '',
+              ]);
+            }
           }
         }
       }
     }
 
-    // Clear the sheet and write new data
-    await callRpc('clearSheet', { range: `'${monthYear}'!A:Z` });
-    await callRpc('updateSheet', { range: `'${monthYear}'!A1`, values: data });
+    const finalData = [header, ...nonFixedRows, ...newRows];
 
-    console.log(`Hoja ${monthYear} inicializada correctamente`);
+    // Sort by date then classId for better readability
+    finalData.sort((a, b) => {
+      if (a[0] === 'FECHA') return -1;
+      if (b[0] === 'FECHA') return 1;
+      if (a[0] !== b[0]) return a[0].localeCompare(b[0]);
+      return a[1].localeCompare(b[1]);
+    });
+
+    // Write back
+    await callRpc('clearSheet', { range: `'${monthYear}'!A:Z` });
+    await callRpc('updateSheet', { range: `'${monthYear}'!A1`, values: finalData });
+
+    console.log(`Hoja ${monthYear} inicializada/actualizada correctamente con ${finalData.length - 1} registros.`);
   } catch (err: any) {
     console.error('Error al actualizar la hoja mensual:', err);
     throw new Error(
@@ -818,12 +820,19 @@ export const registerStudentAbsence = async (
     const monthYear = date.substring(0, 7); // YYYY-MM
     const sheetName = monthYear;
 
-    // 1. Find the row in the monthly sheet
+    // 1. Check if the sheet exists
+    const meta = await callRpc('getSpreadsheetMeta');
+    const sheetExists = meta.sheets.some((s: any) => s.properties.title === sheetName);
+
+    if (!sheetExists) {
+      throw new Error(`La hoja del mes ${sheetName} no ha sido inicializada. Por favor, asegúrate de navegar a este mes en el calendario primero.`);
+    }
+
     const response = await callRpc('getSheetValues', { range: `${sheetName}!A:G` });
 
     const rows = response.values;
     if (!rows || rows.length === 0) {
-      throw new Error(`No se encontraron datos en la hoja ${sheetName}`);
+      throw new Error(`La hoja ${sheetName} está vacía.`);
     }
 
     const header = rows[0];
@@ -982,12 +991,14 @@ export const assignStudentToClassSingleDay = async (
       // Add header
       await callRpc('updateSheet', {
         range: `${sheetName}!A1`,
-        values: [['FECHA', 'CLASE_ID', 'ALUMNA_ID', 'TIPO_ASIGNACION', 'ESTADO']],
+        values: [['FECHA', 'CLASE_ID', 'ALUMNA_ID', 'TIPO_ASIGNACION', 'ESTADO', 'TIMESTAMP', 'NOTAS']],
       });
     }
 
+    const timestamp = new Date().toLocaleString('sv-SE', { timeZone: 'Etc/GMT+3' });
+
     await callRpc('appendSheet', {
-      range: `${sheetName}!A:E`,
+      range: `${sheetName}!A:G`,
       values: [
         [
           date,
@@ -995,6 +1006,8 @@ export const assignStudentToClassSingleDay = async (
           studentId,
           AssignmentType.RECUPERO,
           AttendanceStatus.PROGRAMADA,
+          timestamp,
+          ''
         ],
       ],
     });
@@ -1443,6 +1456,7 @@ export const createStudent = async (student: Student): Promise<Student> => {
       ...student,
       id: newId,
       fecha_inscripcion: student.fecha_inscripcion || new Date().toISOString().split('T')[0],
+      estado: StudentStatus.Active,
     };
   } catch (err: any) {
     console.error('Error creating student:', err);
@@ -1510,13 +1524,13 @@ export const updateStudent = async (student: Student): Promise<void> => {
     if (nombreIndex !== -1) {
       updates.push({
         range: `'${getSheetName()}'!${getColumnLetter(nombreIndex)}${rowIndex}`,
-        values: [[student.nombre]],
+        values: [[student.nombre.toUpperCase()]],
       });
     }
     if (apellidoIndex !== -1) {
       updates.push({
         range: `'${getSheetName()}'!${getColumnLetter(apellidoIndex)}${rowIndex}`,
-        values: [[student.apellido]],
+        values: [[student.apellido.toUpperCase()]],
       });
     }
     if (telefonoIndex !== -1) {
@@ -1541,6 +1555,13 @@ export const updateStudent = async (student: Student): Promise<void> => {
       updates.push({
         range: `'${getSheetName()}'!${getColumnLetter(recuperarIndex)}${rowIndex}`,
         values: [[(student.clases_recuperacion || 0).toString()]],
+      });
+    }
+    const estadoIndex = header.indexOf('ESTADO');
+    if (estadoIndex !== -1) {
+      updates.push({
+        range: `'${getSheetName()}'!${getColumnLetter(estadoIndex)}${rowIndex}`,
+        values: [[student.estado || StudentStatus.Active]],
       });
     }
 
@@ -1796,6 +1817,7 @@ export const removeStudentFromAllFutureClasses = async (studentId: string) => {
           const rowStudentId = row[alumnaIdIndex];
           const rowTipo = row[tipoIndex];
 
+
           // Remove if student matches, is recurring (FIJA), and date is today or future
           if (rowStudentId === studentId && rowTipo === AssignmentType.FIJA && rowDate >= todayISO) {
             return false; // Remove
@@ -1815,5 +1837,95 @@ export const removeStudentFromAllFutureClasses = async (studentId: string) => {
   } catch (err: any) {
     console.error('Error removing future classes:', err);
     throw new Error('Error al eliminar clases futuras: ' + (err.message || 'Error desconocido'));
+  }
+};
+
+// --- Import Students ---
+
+export const loadStudentsByYear = async (year: string): Promise<Student[]> => {
+  try {
+    const response = await callRpc('loadDataFromSheet', { year });
+    const rows: string[][] = response.values;
+
+    if (!rows || rows.length < 2) {
+      return [];
+    }
+
+    const header = rows[0];
+    const headerMap = header.reduce((acc, col, i) => {
+      acc[col.trim()] = i;
+      return acc;
+    }, {} as Record<string, number>);
+
+    const students: Student[] = [];
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      const getVal = (colName: string) => row[headerMap[colName]]?.trim() || '';
+
+      const estadoStr = getVal('ESTADO');
+      if (estadoStr === StudentStatus.Deleted) continue;
+
+      const studentIdValue = getVal('ID');
+      if (!studentIdValue) continue;
+
+      students.push({
+        id: studentIdValue,
+        nombre: getVal('NOMBRE'),
+        apellido: getVal('APELLIDO'),
+        telefono: `54911${getVal('TELEFONO')}`,
+        nivel: LEVEL_MAP[getVal('NIVEL')] || Level.Basico,
+        fecha_inscripcion: parseDate(getVal('INGRESO')),
+        plan: (parseInt(getVal('PLAN'), 10) as Plan) || 1,
+        clases_recuperacion: 0, // Reset for new year
+        estado: (estadoStr as StudentStatus) || StudentStatus.Active,
+      });
+    }
+    return students;
+  } catch (err) {
+    console.error(`Error loading students for year ${year}:`, err);
+    return [];
+  }
+};
+
+export const importStudentsToCurrentYear = async (students: Student[]): Promise<void> => {
+  try {
+    const response = await callRpc('getSheetValues', { range: `'${currentYear}'!A1:Z1` });
+    const rows = response.values;
+    if (!rows || rows.length < 1) throw new Error('No se pudo leer la hoja actual');
+
+    const header = rows[0].map((h: string) => h.trim());
+    const today = new Date();
+    const importDate = `${today.getDate().toString().padStart(2, '0')}/${(today.getMonth() + 1).toString().padStart(2, '0')}/${today.getFullYear()}`;
+
+    const newRows = students.map(student => {
+      const newRow: string[] = new Array(header.length).fill('');
+      const levelCode = Object.entries(LEVEL_MAP).find(([code, level]) => level === student.nivel)?.[0] || 'B';
+      const phoneForSheet = student.telefono.replace(/^54911/, '');
+
+      header.forEach((colName, i) => {
+        switch (colName) {
+          case 'ID': newRow[i] = student.id; break;
+          case 'NOMBRE': newRow[i] = student.nombre.toUpperCase(); break;
+          case 'APELLIDO': newRow[i] = student.apellido.toUpperCase(); break;
+          case 'TELEFONO': newRow[i] = phoneForSheet; break;
+          case 'ESTADO': newRow[i] = student.estado || StudentStatus.Active; break;
+          case 'NIVEL': newRow[i] = levelCode; break;
+          case 'PLAN': newRow[i] = student.plan.toString(); break;
+          case 'INGRESO': newRow[i] = importDate; break;
+          case 'RECUPERAR': newRow[i] = '0'; break;
+        }
+      });
+      return newRow;
+    });
+
+    if (newRows.length > 0) {
+      await callRpc('appendSheet', {
+        range: `'${currentYear}'!A:Z`,
+        values: newRows
+      });
+    }
+  } catch (err: any) {
+    console.error('Error importing students:', err);
+    throw new Error('Error al importar alumnas: ' + (err.message || 'Error desconocido'));
   }
 };

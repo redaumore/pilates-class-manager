@@ -24,7 +24,8 @@ import {
     removeStudentFromAllFutureClasses,
     setUserEmail,
     loadScheduleConfig,
-    saveScheduleConfig
+    saveScheduleConfig,
+    importStudentsToCurrentYear
 } from '../services/googleSheetsService';
 
 import Header from './Header';
@@ -37,6 +38,7 @@ import CalendarPage from './CalendarPage';
 import StudentManagementPage from './StudentManagementPage';
 import PaymentsPage from './PaymentsPage';
 import SettingsPage from './SettingsPage';
+import ImportStudentsModal from './ImportStudentsModal';
 
 type View = 'schedule' | 'calendar' | 'students' | 'payments' | 'settings';
 
@@ -54,6 +56,7 @@ const Dashboard: React.FC = () => {
     const [isClassDetailOpen, setIsClassDetailOpen] = useState(false);
     const [isAssignClassOpen, setIsAssignClassOpen] = useState(false);
     const [isAssignStudentModalOpen, setIsAssignStudentModalOpen] = useState(false);
+    const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
     const [studentToEdit, setStudentToEdit] = useState<Student | null>(null);
     const [studentToAssign, setStudentToAssign] = useState<Student | null>(null);
@@ -74,6 +77,17 @@ const Dashboard: React.FC = () => {
             fetchData(activeYear);
         }
     }, [isLoaded, user, activeYear]);
+
+    useEffect(() => {
+        if (!loading && students.length > 0 && Object.keys(schedule).length > 0) {
+            const year = currentWeek.getFullYear().toString();
+            const month = String(currentWeek.getMonth() + 1).padStart(2, '0');
+            const monthYear = `${year}-${month}`;
+            updateMonthlySheet(schedule, students, monthYear, workingDays).catch(err => {
+                console.warn('Error proactively updating monthly sheet:', err);
+            });
+        }
+    }, [currentWeek, students, schedule, workingDays, loading]);
 
     const fetchData = async (year: string) => {
         setLoading(true);
@@ -237,6 +251,21 @@ const Dashboard: React.FC = () => {
             } finally {
                 setIsSaving(false);
             }
+        }
+    };
+
+    const handleImportStudents = async (selectedStudents: Student[]) => {
+        setIsSaving(true);
+        try {
+            await importStudentsToCurrentYear(selectedStudents);
+            // Refresh local state
+            await fetchData(activeYear);
+            setIsImportModalOpen(false);
+        } catch (error: any) {
+            console.error('Error importing students:', error);
+            alert('Error al importar alumnas: ' + (error.message || 'Error desconocido'));
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -609,6 +638,7 @@ const Dashboard: React.FC = () => {
                     onAddStudent={handleAddStudentClick}
                     onEditStudent={handleEditStudentClick}
                     onDeleteStudent={handleDeleteStudent}
+                    onImportStudents={() => setIsImportModalOpen(true)}
                 />;
             case 'payments':
                 return <PaymentsPage
@@ -720,6 +750,14 @@ const Dashboard: React.FC = () => {
                 currentBookingsCount={getStudentBookingsCount(studentToAssign.id)}
                 isSaving={isSaving}
             />}
+
+            <ImportStudentsModal
+                isOpen={isImportModalOpen}
+                onClose={() => setIsImportModalOpen(false)}
+                onImport={handleImportStudents}
+                currentYear={activeYear}
+                existingStudentIds={students.map(s => s.id)}
+            />
         </div>
     );
 };

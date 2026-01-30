@@ -1,18 +1,19 @@
 import React, { useState } from 'react';
 import { Student } from '../types';
-import { PencilIcon, TrashIcon, PlusIcon, WhatsAppIcon } from './icons';
+import { PencilIcon, TrashIcon, PlusIcon, WhatsAppIcon, ImportIcon } from './icons';
 
 interface StudentManagementPageProps {
   students: Student[];
   onAddStudent: () => void;
   onEditStudent: (student: Student) => void;
   onDeleteStudent: (studentId: string) => void;
+  onImportStudents: () => void;
 }
 
-const StudentManagementPage: React.FC<StudentManagementPageProps> = ({ students, onAddStudent, onEditStudent, onDeleteStudent }) => {
+const StudentManagementPage: React.FC<StudentManagementPageProps> = ({ students, onAddStudent, onEditStudent, onDeleteStudent, onImportStudents }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  
-  const filteredStudents = students.filter(s => 
+
+  const filteredStudents = students.filter(s =>
     `${s.nombre} ${s.apellido}`.toLowerCase().includes(searchTerm.toLowerCase())
   ).sort((a, b) => a.nombre.localeCompare(b.nombre));
 
@@ -26,20 +27,28 @@ const StudentManagementPage: React.FC<StudentManagementPageProps> = ({ students,
       <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
         <h2 className="text-xl font-bold text-blue-800">Gestión de Alumnas</h2>
         <div className="w-full sm:w-auto flex flex-col sm:flex-row items-center gap-4">
-            <input 
-              type="text"
-              placeholder="Buscar alumna..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full sm:w-64 px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-            />
-            <button
-              onClick={onAddStudent}
-              className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              <PlusIcon className="w-5 h-5" />
-              <span>Nueva Alumna</span>
-            </button>
+          <input
+            type="text"
+            placeholder="Buscar alumna..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full sm:w-64 px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+          />
+          <button
+            onClick={onImportStudents}
+            className="w-full sm:w-auto flex items-center justify-center gap-2 px-3 py-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors border border-slate-200"
+            title="Importar alumnas del año anterior"
+          >
+            <ImportIcon className="w-5 h-5" />
+            <span className="sm:hidden lg:inline text-sm">Importar</span>
+          </button>
+          <button
+            onClick={onAddStudent}
+            className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 shadow-sm"
+          >
+            <PlusIcon className="w-5 h-5" />
+            <span>Nueva Alumna</span>
+          </button>
         </div>
       </div>
 
@@ -56,10 +65,10 @@ const StudentManagementPage: React.FC<StudentManagementPageProps> = ({ students,
                   <button onClick={() => handleWhatsAppClick(student)} title="Contactar por WhatsApp" className="p-2 text-green-600 hover:bg-green-100 rounded-full transition-colors">
                     <WhatsAppIcon className="w-5 h-5" />
                   </button>
-                   <button onClick={() => onEditStudent(student)} title="Editar" className="p-2 text-slate-500 hover:bg-slate-200 rounded-full transition-colors">
+                  <button onClick={() => onEditStudent(student)} title="Editar" className="p-2 text-slate-500 hover:bg-slate-200 rounded-full transition-colors">
                     <PencilIcon className="w-5 h-5" />
                   </button>
-                   <button onClick={() => onDeleteStudent(student.id)} title="Eliminar" className="p-2 text-red-500 hover:bg-red-100 rounded-full transition-colors">
+                  <button onClick={() => onDeleteStudent(student.id)} title="Eliminar" className="p-2 text-red-500 hover:bg-red-100 rounded-full transition-colors">
                     <TrashIcon className="w-5 h-5" />
                   </button>
                 </div>
