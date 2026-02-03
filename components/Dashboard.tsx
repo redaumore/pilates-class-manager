@@ -25,7 +25,10 @@ import {
     setUserEmail,
     loadScheduleConfig,
     saveScheduleConfig,
-    importStudentsToCurrentYear
+    importStudentsToCurrentYear,
+    getAvailableSheets,
+    setSpreadsheetId,
+    SheetConfig
 } from '../services/googleSheetsService';
 
 import Header from './Header';
@@ -39,6 +42,7 @@ import StudentManagementPage from './StudentManagementPage';
 import PaymentsPage from './PaymentsPage';
 import SettingsPage from './SettingsPage';
 import ImportStudentsModal from './ImportStudentsModal';
+import SheetSelector from './SheetSelector';
 
 type View = 'schedule' | 'calendar' | 'students' | 'payments' | 'settings';
 
@@ -69,14 +73,57 @@ const Dashboard: React.FC = () => {
     const [scheduleConfig, setScheduleConfig] = useState<ScheduleConfig | null>(null);
     const [isSaving, setIsSaving] = useState(false);
 
+    // Multi-sheet support
+    const [availableSheets, setAvailableSheets] = useState<SheetConfig[]>([]);
+    const [isSheetSelectorOpen, setIsSheetSelectorOpen] = useState(false);
+    const [hasSelectedSheet, setHasSelectedSheet] = useState(false);
+
     const { user, isLoaded } = useUser();
 
+    // Initial Load & Sheet Selection
     useEffect(() => {
         if (isLoaded && user && user.primaryEmailAddress) {
-            setUserEmail(user.primaryEmailAddress.emailAddress);
+            const email = user.primaryEmailAddress.emailAddress;
+            setUserEmail(email);
+
+            const initSheets = async () => {
+                try {
+                    const sheets = await getAvailableSheets(email);
+                    if (sheets.length > 1) {
+                        setAvailableSheets(sheets);
+                        setIsSheetSelectorOpen(true);
+                        setLoading(false); // Stop global loading to show selector
+                    } else {
+                        if (sheets.length === 1) {
+                            setSpreadsheetId(sheets[0].id);
+                        }
+                        setHasSelectedSheet(true);
+                    }
+                } catch (error) {
+                    console.error("Error checking available sheets:", error);
+                    // On error, try to proceed with defaults
+                    setHasSelectedSheet(true);
+                }
+            };
+
+            initSheets();
+        }
+    }, [isLoaded, user]);
+
+    // Fetch data when year changes OR sheet is selected
+    useEffect(() => {
+        if (hasSelectedSheet) {
             fetchData(activeYear);
         }
-    }, [isLoaded, user, activeYear]);
+    }, [hasSelectedSheet, activeYear]);
+
+    const handleSheetSelect = (sheetId: string) => {
+        setSpreadsheetId(sheetId);
+        setIsSheetSelectorOpen(false);
+        setHasSelectedSheet(true);
+        // Set loading true again because the effect will trigger fetchData
+        setLoading(true);
+    };
 
     useEffect(() => {
         if (!loading && students.length > 0 && Object.keys(schedule).length > 0) {
@@ -699,6 +746,12 @@ const Dashboard: React.FC = () => {
             <main className="container mx-auto p-4 sm:p-6 lg:p-8">
                 {renderContent()}
             </main>
+
+            <SheetSelector
+                isOpen={isSheetSelectorOpen}
+                sheets={availableSheets}
+                onSelect={handleSheetSelect}
+            />
 
             <StudentFormModal
                 isOpen={isStudentFormOpen}

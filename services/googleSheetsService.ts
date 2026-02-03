@@ -16,6 +16,7 @@ import { generateInitialSchedule, DAY_CODE_MAP, DAY_NAME_TO_CODE } from '../cons
 // Email del usuario actual para la identificación en el backend
 let currentUserEmail: string | null = null;
 let currentYear: string = new Date().getFullYear().toString();
+let currentSpreadsheetId: string | undefined = undefined;
 
 export const setUserEmail = (email: string | null) => {
   currentUserEmail = email;
@@ -23,6 +24,20 @@ export const setUserEmail = (email: string | null) => {
 
 export const setServiceYear = (year: string) => {
   currentYear = year;
+};
+
+export const setSpreadsheetId = (id: string) => {
+  currentSpreadsheetId = id;
+};
+
+export interface SheetConfig {
+  id: string;
+  name: string;
+}
+
+export const getAvailableSheets = async (email: string): Promise<SheetConfig[]> => {
+  const result = await callRpc('getAvailableSheets', {}, email); // Pass email explicitly used for initial call
+  return result.sheets || [];
 };
 
 const getSheetName = () => currentYear;
@@ -81,8 +96,10 @@ export const ensureYearSheetsExist = async (year: string) => {
 };
 
 // Helper para llamar al backend
-const callRpc = async (action: string, payload: any = {}) => {
-  if (!currentUserEmail) {
+// Added explicit email override for initial setup calls where 'currentUserEmail' might not be set in this scope yet, or just to be safe.
+const callRpc = async (action: string, payload: any = {}, emailOverride?: string) => {
+  const emailToUse = emailOverride || currentUserEmail;
+  if (!emailToUse) {
     console.warn("Llamada a RPC sin usuario configurado");
   }
 
@@ -94,7 +111,8 @@ const callRpc = async (action: string, payload: any = {}) => {
     body: JSON.stringify({
       action,
       payload,
-      userEmail: currentUserEmail
+      userEmail: emailToUse,
+      spreadsheetId: currentSpreadsheetId
     }),
   });
 
@@ -191,10 +209,13 @@ export const loadDataFromSheet = async (year?: string): Promise<{
     const response = await callRpc('loadDataFromSheet', { year: currentYear });
     const rows: string[][] = response.values;
 
+    const scheduleConfig = await loadScheduleConfig();
+    const schedule: Schedule = generateInitialSchedule(scheduleConfig || undefined);
+
     if (!rows || rows.length < 2) {
       return {
         students: [],
-        schedule: generateInitialSchedule(),
+        schedule,
         payments: {},
       };
     }
@@ -205,9 +226,7 @@ export const loadDataFromSheet = async (year?: string): Promise<{
       return acc;
     }, {} as Record<string, number>);
 
-    const scheduleConfig = await loadScheduleConfig();
     const students: Student[] = [];
-    const schedule: Schedule = generateInitialSchedule(scheduleConfig || undefined);
     const payments: PaymentRecord = {};
 
     for (let i = 1; i < rows.length; i++) {
@@ -1036,10 +1055,10 @@ export const loadPlanCosts = async (): Promise<PlanCosts | null> => {
     const rows = response.values;
     if (!rows || rows.length < 2) return null;
 
-    const header = rows[0].map((h: string) => h.trim());
-    const planIndex = header.indexOf('Plan');
-    const cuotaIndex = header.indexOf('Cuota');
-    const estadoIndex = header.indexOf('Estado');
+    const header = rows[0].map((h: string) => h.trim().toLowerCase());
+    const planIndex = header.indexOf('plan');
+    const cuotaIndex = header.indexOf('cuota');
+    const estadoIndex = header.indexOf('estado');
 
     if (planIndex === -1 || cuotaIndex === -1 || estadoIndex === -1) return null;
 
@@ -1048,7 +1067,8 @@ export const loadPlanCosts = async (): Promise<PlanCosts | null> => {
 
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
-      if (row[estadoIndex] === 'Vigente') {
+      const estado = (row[estadoIndex] || '').trim().toLowerCase();
+      if (estado === 'vigente') {
         const plan = parseInt(row[planIndex], 10) as Plan;
         const cuota = parseInt(row[cuotaIndex], 10);
         if (!isNaN(plan) && !isNaN(cuota)) {
@@ -1079,16 +1099,18 @@ export const loadWorkingDays = async (): Promise<string[] | null> => {
     const rows = response.values;
     if (!rows || rows.length < 2) return null;
 
-    const header = rows[0].map((h: string) => h.trim());
-    const planIndex = header.indexOf('Plan');
-    const estadoIndex = header.indexOf('Estado');
+    const header = rows[0].map((h: string) => h.trim().toLowerCase());
+    const planIndex = header.indexOf('plan');
+    const estadoIndex = header.indexOf('estado');
 
     if (planIndex === -1 || estadoIndex === -1) return null;
 
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
-      if (row[planIndex] === 'DiasLaborales' && row[estadoIndex] === 'Vigente') {
-        const cuotaIndex = header.indexOf('Cuota');
+      const planValue = (row[planIndex] || '').trim().toLowerCase();
+      const estadoValue = (row[estadoIndex] || '').trim().toLowerCase();
+      if (planValue === 'diaslaborales' && estadoValue === 'vigente') {
+        const cuotaIndex = header.indexOf('cuota');
         if (cuotaIndex !== -1 && row[cuotaIndex]) {
           return row[cuotaIndex].split(',').map((d: string) => d.trim());
         }
@@ -1108,16 +1130,19 @@ export const loadScheduleConfig = async (): Promise<ScheduleConfig | null> => {
     const rows = response.values;
     if (!rows || rows.length < 2) return null;
 
-    const header = rows[0].map((h: string) => h.trim());
-    const planIndex = header.indexOf('Plan');
-    const cuotaIndex = header.indexOf('Cuota');
-    const estadoIndex = header.indexOf('Estado');
+    const header = rows[0].map((h: string) => h.trim().toLowerCase());
+    const planIndex = header.indexOf('plan');
+    const cuotaIndex = header.indexOf('cuota');
+    const estadoIndex = header.indexOf('estado');
 
     if (planIndex === -1 || cuotaIndex === -1 || estadoIndex === -1) return null;
 
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
-      if (row[planIndex] === 'HorariosClases' && row[estadoIndex] === 'Vigente') {
+      const planValue = (row[planIndex] || '').trim().toLowerCase();
+      const estadoValue = (row[estadoIndex] || '').trim().toLowerCase();
+
+      if (planValue === 'horariosclases' && estadoValue === 'vigente') {
         const rawValue = row[cuotaIndex];
         if (!rawValue) continue;
 
@@ -1126,7 +1151,8 @@ export const loadScheduleConfig = async (): Promise<ScheduleConfig | null> => {
         const days = rawValue.split('|');
         for (const dayStr of days) {
           const [dayCode, hoursStr] = dayStr.split(':');
-          const dayName = DAY_CODE_MAP[dayCode];
+          if (!dayCode) continue;
+          const dayName = DAY_CODE_MAP[dayCode.toUpperCase()];
           if (dayName && hoursStr) {
             config[dayName] = hoursStr
               .split(',')
@@ -1360,16 +1386,24 @@ export const createStudent = async (student: Student): Promise<Student> => {
       }
     }
 
-    // 3. Generate new ID (max + 1)
-    let maxId = 0;
+    // 3. Generate new ID (YYNN - Year Suffix + 2 digits)
+    const yearSuffixStr = currentYear.substring(2); // "26" for 2026
+    const idPrefix = parseInt(yearSuffixStr, 10) * 100; // 2600
+
+    let maxIdForYear = 0;
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
-      const currentId = parseInt(row[idIndex], 10);
-      if (!isNaN(currentId) && currentId > maxId) {
-        maxId = currentId;
+      const currentIdInt = parseInt(row[idIndex], 10);
+
+      // Look for IDs that start with the current year's suffix (YYNN format)
+      if (!isNaN(currentIdInt) && currentIdInt > idPrefix && currentIdInt < idPrefix + 100) {
+        if (currentIdInt > maxIdForYear) {
+          maxIdForYear = currentIdInt;
+        }
       }
     }
-    const newId = (maxId + 1).toString();
+
+    const newId = (maxIdForYear > 0 ? maxIdForYear + 1 : idPrefix + 1).toString();
 
     // 4. Prepare the new row data
     // Map level to letter code

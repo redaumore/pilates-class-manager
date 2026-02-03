@@ -7,6 +7,7 @@ interface RpcBody {
     action: string;
     payload?: any;
     userEmail?: string;
+    spreadsheetId?: string; // Optional client-provided ID
 }
 
 // Initialize auth - requires environment variables
@@ -39,21 +40,48 @@ const getAuthClient = () => {
 };
 
 
-const USER_SPREADSHEET_MAP: Record<string, string> = {
-    // Add specific mappings here
-    'redaumore@gmail.com': '108MJXvIRSg_uXCAt4nJT0V0f96diOjaxrmqxqlq4iIM',
-    'rolando.daumas@gmail.com': '1onA2BHky-848DFSbaeTa_Qw-r8ZwpZ9nJteIn8-d1cc',
+// Interface for Sheet Configuration
+interface SheetConfig {
+    id: string;
+    name: string;
+}
+
+const USER_SPREADSHEETS: Record<string, SheetConfig[]> = {
+    'redaumore@gmail.com': [
+        { id: '108MJXvIRSg_uXCAt4nJT0V0f96diOjaxrmqxqlq4iIM', name: 'Pilates Dev' },
+        { id: '1onA2BHky-848DFSbaeTa_Qw-r8ZwpZ9nJteIn8-d1cc', name: 'Pilates Lorena' }
+    ],
+    'rolando.daumas@gmail.com': [
+        { id: '1onA2BHky-848DFSbaeTa_Qw-r8ZwpZ9nJteIn8-d1cc', name: 'Pilates Lorena' },
+        { id: '108MJXvIRSg_uXCAt4nJT0V0f96diOjaxrmqxqlq4iIM', name: 'Pilates Dev' },
+        { id: '1wBbSGFK9GYnTKTiEvfaf6dUaeIQS3Ah8ey3PuVBIKLQ', name: 'Pilates Agata' }
+    ],
 };
 
-const getSpreadsheetId = (userEmail?: string) => {
-    // Priority: 1. User Map, 2. Environment Variable (global default), 3. Hardcoded Default
+const getSpreadsheetId = (userEmail?: string, requestedId?: string) => {
+    // Priority: 1. Validate requestedId against User Map
+    if (userEmail && USER_SPREADSHEETS[userEmail]) {
+        const userSheets = USER_SPREADSHEETS[userEmail];
 
-    if (userEmail && USER_SPREADSHEET_MAP[userEmail]) {
-        console.log(`Using specific spreadsheet for user: ${userEmail}`);
-        return USER_SPREADSHEET_MAP[userEmail];
+        // If specific ID requested, verify ownership
+        if (requestedId) {
+            const match = userSheets.find(s => s.id === requestedId);
+            if (match) {
+                console.log(`Using specific spreadsheet for user ${userEmail}: ${match.name} (${match.id})`);
+                return match.id;
+            }
+            console.warn(`User ${userEmail} requested invalid sheet ID: ${requestedId}. Falling back to default.`);
+        }
+
+        // Default to first sheet if only one exists or no ID provided (legacy behavior)
+        if (userSheets.length > 0) {
+            console.log(`Using default spreadsheet for user ${userEmail}: ${userSheets[0].name} (${userSheets[0].id})`);
+            return userSheets[0].id;
+        }
     }
 
     if (process.env.GOOGLE_SPREADSHEET_ID) {
+        console.log('Using spreadsheet from GOOGLE_SPREADSHEET_ID environment variable.');
         return process.env.GOOGLE_SPREADSHEET_ID;
     }
 
@@ -67,12 +95,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-        const { action, payload, userEmail }: RpcBody = req.body;
+        const { action, payload, userEmail, spreadsheetId: requestedSpreadsheetId }: RpcBody = req.body;
         const auth = getAuthClient();
         const sheets = google.sheets({ version: 'v4', auth });
-        const spreadsheetId = getSpreadsheetId(userEmail);
+
+        // Resolve the actual spreadsheet ID to use
+        const spreadsheetId = getSpreadsheetId(userEmail, requestedSpreadsheetId);
 
         switch (action) {
+            case 'getAvailableSheets':
+                if (!userEmail || !USER_SPREADSHEETS[userEmail]) {
+                    return res.status(200).json({ sheets: [] });
+                }
+                // Return only id and name, filter sensitive info if any (though currently none)
+                return res.status(200).json({
+                    sheets: USER_SPREADSHEETS[userEmail].map(s => ({ id: s.id, name: s.name }))
+                });
+
             case 'loadDataFromSheet':
                 // Implementation mirroring the frontend logic but server-side
                 const { year: loadYear } = payload || {};
