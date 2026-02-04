@@ -47,9 +47,20 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({ students, payments, planCos
     let collected = 0;
     let potential = 0;
 
+    const lastDayOfMonth = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0);
+
     for (const student of students) {
+      // Check if student was registered by the end of this month
+      const registrationDate = new Date(student.fecha_inscripcion + 'T00:00:00');
+      if (registrationDate > lastDayOfMonth) {
+        continue;
+      }
+
       const cost = planCosts[student.plan] || 0;
-      potential += cost;
+      const hasClasses = student.enrolledClasses && student.enrolledClasses.length > 0;
+      if (hasClasses) {
+        potential += cost;
+      }
 
       const hasPaid = !!payments[student.id]?.[monthYear];
       if (hasPaid) {

@@ -22,6 +22,7 @@ export interface Student {
   plan: Plan;
   clases_recuperacion: number;
   estado: StudentStatus;
+  enrolledClasses: string[];
 }
 
 export interface Booking {
