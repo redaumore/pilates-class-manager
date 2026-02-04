@@ -12,6 +12,7 @@ import {
   StudentStatus,
 } from '../types';
 import { generateInitialSchedule, DAY_CODE_MAP, DAY_NAME_TO_CODE } from '../constants';
+import { getCachedOrFetch, invalidateCache, CACHE_KEYS } from '../utils/cache';
 
 // Email del usuario actual para la identificación en el backend
 let currentUserEmail: string | null = null;
@@ -249,6 +250,7 @@ export const loadDataFromSheet = async (year?: string): Promise<{
         plan: (parseInt(getVal('PLAN'), 10) as Plan) || 1,
         clases_recuperacion: parseInt(getVal('RECUPERAR'), 10) || 0,
         estado: (estadoStr as StudentStatus) || StudentStatus.Active,
+        enrolledClasses: [],
       };
       students.push(student);
 
@@ -261,7 +263,16 @@ export const loadDataFromSheet = async (year?: string): Promise<{
         }
       }
 
+      const enrolledClasses: string[] = [];
       const classKeys = ['CLASE 1', 'CLASE 2', 'CLASE 3'];
+      for (const classKey of classKeys) {
+        const classCode = getVal(classKey);
+        if (classCode) {
+          enrolledClasses.push(classCode);
+        }
+      }
+      student.enrolledClasses = enrolledClasses;
+
       for (const classKey of classKeys) {
         const classCode = getVal(classKey);
         if (classCode) {
@@ -1037,7 +1048,8 @@ export const assignStudentToClassSingleDay = async (
   }
 };
 
-export const loadPlanCosts = async (): Promise<PlanCosts | null> => {
+// Internal function without cache
+const loadPlanCostsInternal = async (): Promise<PlanCosts | null> => {
   try {
     // Check if config sheet exists
     const meta = await callRpc('getSpreadsheetMeta');
@@ -1086,7 +1098,13 @@ export const loadPlanCosts = async (): Promise<PlanCosts | null> => {
   }
 };
 
-export const loadWorkingDays = async (): Promise<string[] | null> => {
+// Cached version (1 hour cache)
+export const loadPlanCosts = async (): Promise<PlanCosts | null> => {
+  return getCachedOrFetch(CACHE_KEYS.PLAN_COSTS, loadPlanCostsInternal);
+};
+
+// Internal function without cache
+const loadWorkingDaysInternal = async (): Promise<string[] | null> => {
   try {
     const meta = await callRpc('getSpreadsheetMeta');
     const sheetExists = meta.sheets.some(
@@ -1124,7 +1142,13 @@ export const loadWorkingDays = async (): Promise<string[] | null> => {
   }
 };
 
-export const loadScheduleConfig = async (): Promise<ScheduleConfig | null> => {
+// Cached version (1 hour cache)
+export const loadWorkingDays = async (): Promise<string[] | null> => {
+  return getCachedOrFetch(CACHE_KEYS.WORKING_DAYS, loadWorkingDaysInternal);
+};
+
+// Internal function without cache
+const loadScheduleConfigInternal = async (): Promise<ScheduleConfig | null> => {
   try {
     const response = await callRpc('getSheetValues', { range: `'${getConfigSheetName()}'!A:D` });
     const rows = response.values;
@@ -1169,6 +1193,11 @@ export const loadScheduleConfig = async (): Promise<ScheduleConfig | null> => {
     console.error('Error loading schedule config:', err);
     return null;
   }
+};
+
+// Cached version (1 hour cache)
+export const loadScheduleConfig = async (): Promise<ScheduleConfig | null> => {
+  return getCachedOrFetch(CACHE_KEYS.SCHEDULE_CONFIG, loadScheduleConfigInternal);
 };
 
 export const savePlanCosts = async (newCosts: PlanCosts) => {
@@ -1242,6 +1271,9 @@ export const savePlanCosts = async (newCosts: PlanCosts) => {
 
     console.log('Plan costs saved successfully');
 
+    // Invalidate cache after saving
+    invalidateCache(CACHE_KEYS.PLAN_COSTS);
+
   } catch (err: any) {
     console.error('Error saving plan costs:', err);
     throw new Error('Error al guardar la configuración de costos: ' + err.message);
@@ -1284,6 +1316,9 @@ export const saveWorkingDays = async (days: string[]) => {
       range: `'${configSheet}'!A:D`,
       values: [['DiasLaborales', days.join(','), 'Vigente', nowStr]]
     });
+
+    // Invalidate cache after saving
+    invalidateCache(CACHE_KEYS.WORKING_DAYS);
 
   } catch (err) {
     console.error('Error saving working days:', err);
@@ -1337,6 +1372,9 @@ export const saveScheduleConfig = async (config: ScheduleConfig) => {
       range: `'${configSheet}'!A:D`,
       values: [['HorariosClases', serialized, 'Vigente', nowStr]]
     });
+
+    // Invalidate cache after saving
+    invalidateCache(CACHE_KEYS.SCHEDULE_CONFIG);
 
   } catch (err) {
     console.error('Error saving schedule config:', err);
@@ -1697,7 +1735,8 @@ const ensureHolidaysSheetExists = async () => {
   }
 };
 
-export const loadNonWorkingDays = async (): Promise<NonWorkingDay[]> => {
+// Internal function without cache
+const loadNonWorkingDaysInternal = async (): Promise<NonWorkingDay[]> => {
   try {
     await ensureHolidaysSheetExists();
 
@@ -1719,6 +1758,11 @@ export const loadNonWorkingDays = async (): Promise<NonWorkingDay[]> => {
   }
 };
 
+// Cached version (1 hour cache)
+export const loadNonWorkingDays = async (): Promise<NonWorkingDay[]> => {
+  return getCachedOrFetch(CACHE_KEYS.NON_WORKING_DAYS, loadNonWorkingDaysInternal);
+};
+
 export const addNonWorkingDay = async (day: Omit<NonWorkingDay, 'id'>): Promise<NonWorkingDay> => {
   try {
     await ensureHolidaysSheetExists();
@@ -1730,6 +1774,9 @@ export const addNonWorkingDay = async (day: Omit<NonWorkingDay, 'id'>): Promise<
       range: `'${getHolidaysSheetName()}'!A:D`,
       values: [newRow]
     });
+
+    // Invalidate cache after adding
+    invalidateCache(CACHE_KEYS.NON_WORKING_DAYS);
 
     return { id: newId, ...day };
   } catch (err: any) {
@@ -1771,6 +1818,9 @@ export const deleteNonWorkingDay = async (id: string): Promise<void> => {
       rowIndex: rowIndex,
       endRowIndex: rowIndex + 1
     });
+
+    // Invalidate cache after deleting
+    invalidateCache(CACHE_KEYS.NON_WORKING_DAYS);
 
   } catch (err: any) {
     console.error('Error deleting non-working day:', err);
@@ -1912,6 +1962,7 @@ export const loadStudentsByYear = async (year: string): Promise<Student[]> => {
         plan: (parseInt(getVal('PLAN'), 10) as Plan) || 1,
         clases_recuperacion: 0, // Reset for new year
         estado: (estadoStr as StudentStatus) || StudentStatus.Active,
+        enrolledClasses: [],
       });
     }
     return students;
