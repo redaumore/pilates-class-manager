@@ -56,6 +56,9 @@ const USER_SPREADSHEETS: Record<string, SheetConfig[]> = {
         { id: '108MJXvIRSg_uXCAt4nJT0V0f96diOjaxrmqxqlq4iIM', name: 'Pilates Dev' },
         { id: '1wBbSGFK9GYnTKTiEvfaf6dUaeIQS3Ah8ey3PuVBIKLQ', name: 'Pilates Agata' }
     ],
+    'lorenarobe71@gmail.com': [
+        { id: '1onA2BHky-848DFSbaeTa_Qw-r8ZwpZ9nJteIn8-d1cc', name: 'Pilates Lorena' }
+    ]
 };
 
 const getSpreadsheetId = (userEmail?: string, requestedId?: string) => {

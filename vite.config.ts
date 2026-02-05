@@ -4,13 +4,18 @@ import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { execSync } from 'child_process';
 
-// Calculate version based on commit count
-let version = '1.0.0';
-try {
-  const commitCount = execSync('git rev-list --count HEAD').toString().trim();
-  version = `1.${commitCount}`;
-} catch (e) {
-  console.warn('Could not determine commit count from git, using default version.');
+import pkg from './package.json';
+
+// Calculate version based on commit count, fallback to package.json version
+let version = pkg.version;
+// Only try to get version from git if we're not in Vercel build environment
+if (!process.env.VERCEL) {
+  try {
+    const commitCount = execSync('git rev-list --count HEAD').toString().trim();
+    version = `1.${commitCount}`;
+  } catch (e) {
+    console.warn('Could not determine commit count from git, using version from package.json.');
+  }
 }
 
 export default defineConfig({

@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Student, PaymentRecord, PlanCosts } from '../types';
-import { ChevronLeftIcon, ChevronRightIcon } from './icons';
+import { ChevronLeftIcon, ChevronRightIcon, EyeIcon, EyeSlashIcon } from './icons';
 import PaymentDateModal from './PaymentDateModal';
 
 interface PaymentsPageProps {
@@ -18,6 +18,8 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({ students, payments, planCos
   const [showOnlyUnpaid, setShowOnlyUnpaid] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+  const [showAmounts, setShowAmounts] = useState(false);
+
 
   const changeMonth = (amount: number) => {
     setViewDate(prev => {
@@ -111,15 +113,15 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({ students, payments, planCos
               </button>
             </div>
 
-            <div className="flex items-center gap-4 w-full md:w-auto">
+            <div className="flex flex-col sm:flex-row items-center gap-4 w-full sm:w-auto">
               <input
                 type="text"
                 placeholder="Buscar alumna..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full md:w-48 px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="w-full sm:w-64 px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               />
-              <div className="flex items-center whitespace-nowrap">
+              <div className="flex items-center whitespace-nowrap self-start sm:self-center">
                 <input
                   type="checkbox"
                   id="unpaid-filter"
@@ -135,19 +137,32 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({ students, payments, planCos
           </div>
         </div>
 
-        <div className="bg-blue-50 border-l-4 border-blue-500 text-blue-800 p-4 rounded-r-lg mb-6" role="alert">
-          <div className="flex justify-between items-center flex-wrap gap-4">
-            <div className="flex items-center gap-3">
-              <p className="font-bold text-lg">Resumen del Mes</p>
-              {isSaving && <span className="text-blue-600 text-xs font-semibold animate-bounce">Actualizando...</span>}
+        <div className="bg-blue-50 border-l-4 border-blue-500 text-blue-800 p-3 sm:p-4 rounded-r-lg mb-6" role="alert">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-6">
+            <div className="flex items-center gap-2">
+              <p className="font-bold text-base sm:text-lg">Resumen del Mes</p>
+              <button
+                onClick={() => setShowAmounts(!showAmounts)}
+                className="p-1 hover:bg-blue-100 rounded-full transition-colors text-blue-600"
+                title={showAmounts ? "Ocultar montos" : "Mostrar montos"}
+              >
+                {showAmounts ? <EyeSlashIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
+              </button>
+              {isSaving && <span className="text-blue-600 text-xs font-semibold animate-pulse">...</span>}
             </div>
-            <div className="text-right">
-              <p className="text-sm">Recaudado</p>
-              <p className="text-2xl font-bold">${totalCollected.toLocaleString('es-ES')}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-sm">Potencial</p>
-              <p className="text-2xl font-bold">${totalPotential.toLocaleString('es-ES')}</p>
+            <div className="flex items-center justify-between sm:justify-end gap-6 w-full sm:w-auto border-t sm:border-t-0 border-blue-200 pt-2 sm:pt-0">
+              <div className="text-right">
+                <p className="text-[10px] uppercase text-blue-600 font-semibold leading-tight">Recaudado</p>
+                <p className="text-lg sm:text-2xl font-bold leading-tight">
+                  {showAmounts ? `$${totalCollected.toLocaleString('es-ES')}` : '$*******'}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] uppercase text-blue-600 font-semibold leading-tight">Potencial</p>
+                <p className="text-lg sm:text-2xl font-bold leading-tight">
+                  {showAmounts ? `$${totalPotential.toLocaleString('es-ES')}` : '$*******'}
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -165,31 +180,31 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({ students, payments, planCos
                 if (isLate) bgColor = 'bg-red-50';
 
                 return (
-                  <li key={student.id} className={`flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 rounded-lg gap-3 transition-colors ${bgColor}`}>
-                    <div className="flex-grow">
-                      <p className="font-semibold text-slate-800">{student.nombre} {student.apellido}</p>
-                      <p className="text-sm text-slate-500">Plan: {student.plan}</p>
+                  <li key={student.id} className={`flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 sm:p-4 rounded-lg gap-3 transition-colors ${bgColor}`}>
+                    <div className="flex flex-row items-center justify-between w-full sm:w-auto gap-2 flex-wrap sm:flex-nowrap">
+                      <div className="flex items-center gap-2">
+                        <p className="font-bold text-slate-800 text-sm sm:text-base">{student.nombre} {student.apellido}</p>
+                        <span className="text-[10px] bg-white/50 border border-slate-200 px-1.5 py-0.5 rounded text-slate-500 font-medium">
+                          Plan {student.plan}
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        {isPaid ? (
+                          <p className="text-[11px] font-semibold text-green-700">Pagado: {formatDate(paymentDate)}</p>
+                        ) : isLate ? (
+                          <p className="text-[11px] font-semibold text-red-700">Pago Atrasado</p>
+                        ) : (
+                          <p className="text-[11px] text-slate-500 font-medium whitespace-nowrap">Pendiente de Pago</p>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-4 self-end sm:self-center w-full sm:w-auto">
-                      {isPaid ? (
-                        <div className="flex-grow text-center sm:text-right">
-                          <p className="text-sm font-semibold text-green-700">Pagado el: {formatDate(paymentDate)}</p>
-                        </div>
-                      ) : isLate ? (
-                        <div className="flex-grow text-center sm:text-right">
-                          <p className="text-sm font-semibold text-red-700">Pago Atrasado</p>
-                        </div>
-                      ) : (
-                        <div className="flex-grow text-center sm:text-right">
-                          <p className="text-sm text-slate-600">Pendiente de Pago</p>
-                        </div>
-                      )}
 
+                    <div className="w-full sm:w-auto">
                       {isPaid ? (
                         <button
                           onClick={() => onUndoPayment(student.id, monthYear)}
                           disabled={isSaving}
-                          className="px-3 py-1 bg-slate-400 text-white text-xs rounded-md hover:bg-slate-500 w-full sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="px-3 py-1.5 bg-slate-400 text-white text-xs font-medium rounded-md hover:bg-slate-500 w-full sm:w-auto disabled:opacity-50"
                         >
                           {isSaving ? '...' : 'Deshacer'}
                         </button>
@@ -197,7 +212,7 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({ students, payments, planCos
                         <button
                           onClick={() => handleOpenPaymentModal(student)}
                           disabled={isSaving}
-                          className="px-3 py-1 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 w-full sm:w-auto disabled:bg-blue-300 disabled:cursor-not-allowed"
+                          className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-md hover:bg-blue-700 w-full sm:w-auto disabled:bg-blue-300"
                         >
                           Marcar Pago
                         </button>
